@@ -1,3 +1,15 @@
+# Ignora tutti i file di sviluppo, regole interne e sorgenti nella root
+# (Mantieni nel repository cliente solo NOGA Gestionale.app, gli script .command e il README.md)
+
+/*
+!/NOGA Gestionale.app/
+!/Installa_NOGA_Mac.command
+!/Avvia_NOGA_Mac.command
+!/README.md
+!/.gitignore
+!/.gitattributes
+
+# File di sistema e cache da ignorare ovunque
 __pycache__/
 *.py[cod]
 *.bak

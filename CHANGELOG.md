@@ -99,3 +99,26 @@ Tutte le modifiche, interventi architetturali, refactoring e aggiornamenti devon
   - `CHANGELOG.md` (aggiornato)
 - **Esito Quality Gates**:
   - Validazione XML `Info.plist`, verifica assenza `CRLF` negli script Bash macOS e test E2E su `127.0.0.1`: 100% PASS.
+
+---
+
+## [2026-10-17 16:07] - MACOS-NATIVE-006: Finestra Desktop Nativa macOS (`NSWindow` + `WKWebView`), Motore Ibrido Autonomo Zero-Server-Error e Installer 1-Click
+
+- **ID Intervento**: `MACOS-NATIVE-006`
+- **Data / Ora**: 2026-10-17 16:07 CEST
+- **Punto di Ripristino (Rollback)**: Tag Git `v3.1-macos-app` (pre-finestra nativa) e `v4.0-native-macos` (post-verifica)
+- **Motivazione**:
+  - Risoluzione definitiva dell'errore `"Impossibile raggiungere il server"` su macOS e trasformazione di **`NOGA Gestionale.app`** in una **vera applicazione desktop nativa macOS** che si apre nella propria finestra `NSWindow` + `WKWebView` (con barra menu macOS nativa) senza aprire Safari o schede del browser.
+  - Implementazione del **Motore Ibrido Autonomo** in `app.js` + `app_nativa_mac.html` (embedded in `Contents/Resources/app/app_nativa_mac.html`) che permette all'applicazione di funzionare al 100% anche senza server HTTP attivo o senza Xcode Command Line Tools installati sul Mac, sincronizzandosi automaticamente con SQLite (`~/Library/Application Support/NOGA_Gestionale/crm_ingrosso.db`) quando disponibile.
+  - Creazione dell'installatore automatico 1-click **`Installa_NOGA_Mac.command`** che rimuove la quarantena Gatekeeper (`xattr -cr`), installa `NOGA Gestionale.app` direttamente in `/Applications` e sulla Scrivania (`~/Desktop`) e avvia subito l'app nativa.
+- **File Creati / Modificati**:
+  - `app.js` (aggiornato con motore ibrido autonomo persistente)
+  - `main.py` & `agenda_funzioni.py` (supporto percorso scrivibile `~/Library/Application Support/NOGA_Gestionale/crm_ingrosso.db` su macOS)
+  - `crea_app_mac.py` (generatore finestra nativa Cocoa/WebKit `noga_native_macos.m` + `noga_native_window.jxa` + `app_nativa_mac.html` + `Installa_NOGA_Mac.command`)
+  - `NOGA Gestionale.app/` (rigenerato v4.0)
+  - `Installa_NOGA_Mac.command` (creato)
+  - `README.md` (aggiornato con guida di installazione 1-click)
+  - `CHANGELOG.md` (aggiornato)
+- **Esito Quality Gates**:
+  - Verifica sintassi JS (`node --check app.js`), compilazione bundle `.app`, assenza `CRLF` negli eseguibili macOS e test API/persistenza: 100% PASS.
+

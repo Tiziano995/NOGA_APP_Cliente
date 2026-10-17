@@ -1,41 +1,51 @@
 /**
- * NOGA ROMA - LOGICA INTERFACCIA GESTIONALE PRIVATO B2B
- * Modulo Completo: Acquisizione, Ordini (€), Grafici Territoriali, Duplicati
- * e Calendarizzazione & Gestione Ricontatti in Tempo Reale.
+ * NOGA ROMA - MOTORE APPLICATIVO NATIVO macOS & GESTIONALE B2B
+ * Funzionamento Ibrido Autonomo (In-App Persistence + SQLite REST Sync):
+ * Funziona al 100% sia come App Nativa macOS autonoma (zero server esterno richiesto),
+ * sia sincronizzato con app_server.py (SQLite).
  * Zero librerie esterne, zero colori hardcoded, zero emoji.
  */
 
 const MAPPA_CITTA_REGIONE_CLIENT = {
   roma: "Lazio", latina: "Lazio", frosinone: "Lazio", viterbo: "Lazio", rieti: "Lazio",
+  civitavecchia: "Lazio", tivoli: "Lazio", velletri: "Lazio", pomezia: "Lazio",
   milano: "Lombardia", brescia: "Lombardia", bergamo: "Lombardia", monza: "Lombardia",
   como: "Lombardia", varese: "Lombardia", pavia: "Lombardia", cremona: "Lombardia",
   mantova: "Lombardia", lecco: "Lombardia", lodi: "Lombardia", sondrio: "Lombardia",
-  vigevano: "Lombardia", napoli: "Campania", salerno: "Campania", caserta: "Campania",
-  avellino: "Campania", benevento: "Campania", aversa: "Campania", torino: "Piemonte",
-  novara: "Piemonte", alessandria: "Piemonte", asti: "Piemonte", cuneo: "Piemonte",
-  biella: "Piemonte", vercelli: "Piemonte", firenze: "Toscana", prato: "Toscana",
-  livorno: "Toscana", arezzo: "Toscana", pisa: "Toscana", pistoia: "Toscana",
-  lucca: "Toscana", grosseto: "Toscana", siena: "Toscana", viareggio: "Toscana",
+  vigevano: "Lombardia", busto: "Lombardia", legnano: "Lombardia", desenzano: "Lombardia",
+  napoli: "Campania", salerno: "Campania", caserta: "Campania", avellino: "Campania",
+  benevento: "Campania", aversa: "Campania", sorrento: "Campania", capri: "Campania",
+  amalfi: "Campania", pozzuoli: "Campania",
+  torino: "Piemonte", novara: "Piemonte", alessandria: "Piemonte", asti: "Piemonte",
+  cuneo: "Piemonte", biella: "Piemonte", vercelli: "Piemonte", alba: "Piemonte",
+  firenze: "Toscana", prato: "Toscana", livorno: "Toscana", arezzo: "Toscana",
+  pisa: "Toscana", pistoia: "Toscana", lucca: "Toscana", grosseto: "Toscana",
+  siena: "Toscana", viareggio: "Toscana", "forte dei marmi": "Toscana", empoli: "Toscana",
   bologna: "Emilia-Romagna", modena: "Emilia-Romagna", parma: "Emilia-Romagna",
   "reggio emilia": "Emilia-Romagna", ravenna: "Emilia-Romagna", rimini: "Emilia-Romagna",
   ferrara: "Emilia-Romagna", forli: "Emilia-Romagna", "forlì": "Emilia-Romagna",
-  cesena: "Emilia-Romagna", piacenza: "Emilia-Romagna", venezia: "Veneto",
-  verona: "Veneto", padova: "Veneto", vicenza: "Veneto", treviso: "Veneto",
-  rovigo: "Veneto", belluno: "Veneto", montebelluna: "Veneto", bari: "Puglia",
-  taranto: "Puglia", foggia: "Puglia", lecce: "Puglia", brindisi: "Puglia",
-  barletta: "Puglia", andria: "Puglia", trani: "Puglia", palermo: "Sicilia",
-  catania: "Sicilia", messina: "Sicilia", siracusa: "Sicilia", ragusa: "Sicilia",
-  trapani: "Sicilia", agrigento: "Sicilia", genova: "Liguria", "la spezia": "Liguria",
-  savona: "Liguria", imperia: "Liguria", sanremo: "Liguria", ancona: "Marche",
-  pesaro: "Marche", urbino: "Marche", macerata: "Marche", fermo: "Marche",
-  "ascoli piceno": "Marche", "civitanova marche": "Marche", "porto sant'elpidio": "Marche",
-  montegranaro: "Marche", "l'aquila": "Abruzzo", pescara: "Abruzzo", chieti: "Abruzzo",
-  teramo: "Abruzzo", perugia: "Umbria", terni: "Umbria", trieste: "Friuli-Venezia Giulia",
-  udine: "Friuli-Venezia Giulia", pordenone: "Friuli-Venezia Giulia", gorizia: "Friuli-Venezia Giulia",
-  trento: "Trentino-Alto Adige", bolzano: "Trentino-Alto Adige", catanzaro: "Calabria",
-  "reggio calabria": "Calabria", cosenza: "Calabria", crotone: "Calabria",
+  cesena: "Emilia-Romagna", piacenza: "Emilia-Romagna", riccione: "Emilia-Romagna",
+  venezia: "Veneto", verona: "Veneto", padova: "Veneto", vicenza: "Veneto",
+  treviso: "Veneto", rovigo: "Veneto", belluno: "Veneto", montebelluna: "Veneto",
+  mestre: "Veneto", cortina: "Veneto",
+  bari: "Puglia", taranto: "Puglia", foggia: "Puglia", lecce: "Puglia",
+  brindisi: "Puglia", barletta: "Puglia", andria: "Puglia", trani: "Puglia",
+  palermo: "Sicilia", catania: "Sicilia", messina: "Sicilia", siracusa: "Sicilia",
+  ragusa: "Sicilia", trapani: "Sicilia", agrigento: "Sicilia", taormina: "Sicilia",
+  genova: "Liguria", "la spezia": "Liguria", savona: "Liguria", imperia: "Liguria",
+  sanremo: "Liguria", portofino: "Liguria",
+  ancona: "Marche", pesaro: "Marche", urbino: "Marche", macerata: "Marche",
+  fermo: "Marche", "ascoli piceno": "Marche", "civitanova marche": "Marche",
+  "porto sant'elpidio": "Marche", montegranaro: "Marche",
+  "l'aquila": "Abruzzo", pescara: "Abruzzo", chieti: "Abruzzo", teramo: "Abruzzo",
+  perugia: "Umbria", terni: "Umbria", assisi: "Umbria",
+  trieste: "Friuli-Venezia Giulia", udine: "Friuli-Venezia Giulia",
+  pordenone: "Friuli-Venezia Giulia", gorizia: "Friuli-Venezia Giulia",
+  trento: "Trentino-Alto Adige", bolzano: "Trentino-Alto Adige",
+  catanzaro: "Calabria", "reggio calabria": "Calabria", cosenza: "Calabria", crotone: "Calabria",
   cagliari: "Sardegna", sassari: "Sardegna", olbia: "Sardegna", nuoro: "Sardegna",
-  potenza: "Basilicata", matera: "Basilicata", campobasso: "Molise", isernia: "Molise",
+  potenza: "Basilicata", matera: "Basilicata",
+  campobasso: "Molise", isernia: "Molise",
   aosta: "Valle d'Aosta"
 };
 
@@ -44,6 +54,7 @@ const NOMI_MESI_IT = [
   "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE"
 ];
 
+const STORAGE_KEY_CONTATTI = "noga_roma_macos_db_v3";
 const oggiInit = new Date();
 
 const state = {
@@ -83,16 +94,16 @@ const state = {
   ordiniSortBy: "totale_ordini",
   territorioMode: "regioni",
   calendarYear: oggiInit.getFullYear(),
-  calendarMonth: oggiInit.getMonth(), // 0-11
+  calendarMonth: oggiInit.getMonth(),
   calendarSelectedDate: formatDateISO(oggiInit),
-  agendaFilterMode: "tutti", // 'tutti' | 'oggi_scaduti' | 'giorno'
+  agendaFilterMode: "tutti",
   selectedContact: null,
   pendingDeleteId: null,
   isFormDirty: false,
-  isApiAvailable: true
+  isApiAvailable: false
 };
 
-const API_BASE = window.location.origin.startsWith("http") ? "" : "http://localhost:8080";
+const API_BASE = window.location.origin.startsWith("http") ? "" : "http://127.0.0.1:8080";
 
 document.addEventListener("DOMContentLoaded", () => {
   setupNavigation();
@@ -101,7 +112,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ==============================================================================
-// 1. UTILITY DI FORMATTAZIONE, DATE E DOMINIO CLIENT
+// 1. UTILITY DI FORMATTAZIONE, DATE E DOMINIO PURO
 // ==============================================================================
 
 function escapeHtml(text) {
@@ -129,6 +140,11 @@ function formatDateISO(dateObj) {
 
 function formatTimeISO(dateObj) {
   return `${pad2(dateObj.getHours())}:${pad2(dateObj.getMinutes())}`;
+}
+
+function getNowTimestampStr() {
+  const now = new Date();
+  return `${formatDateISO(now)} ${formatTimeISO(now)}`;
 }
 
 function formatDateIT(isoDateStr) {
@@ -202,7 +218,7 @@ function calcolaSlotRapido(slotKey, baseDateStr = "", baseTimeStr = "") {
   }
 
   if (slotKey === "lunedi_prossimo") {
-    const day = target.getDay(); // 0=Dom, 1=Lun, ...
+    const day = target.getDay();
     const daysUntilMonday = day === 0 ? 1 : 8 - day;
     target.setDate(target.getDate() + daysUntilMonday);
     return { date: formatDateISO(target), time: "10:00" };
@@ -248,17 +264,80 @@ function normalizzaAziendaClient(nome) {
     .replace(/[^a-z0-9àèéìòù]/g, "");
 }
 
+function accodaNotaClient(notaEsistente, nuovaNota) {
+  const es = String(notaEsistente || "").trim();
+  const nv = String(nuovaNota || "").trim();
+  if (!nv) return es;
+  if (!es) return nv;
+  return `${es} | ${nv}`;
+}
+
+function parseImportoClient(valore) {
+  if (valore === null || valore === undefined || valore === "") return 0.0;
+  if (typeof valore === "number") return Number(valore.toFixed(2));
+  let s = String(valore).replace(/[€$£\sA-Za-z]/g, "");
+  if (!s) return 0.0;
+  if (s.includes(",") && s.includes(".")) {
+    if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
+      s = s.replace(/\./g, "").replace(",", ".");
+    } else {
+      s = s.replace(/,/g, "");
+    }
+  } else if (s.includes(",")) {
+    s = s.replace(",", ".");
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? 0.0 : Number(n.toFixed(2));
+}
+
+function parsePrioritaClient(valore, def = 2) {
+  if (valore === null || valore === undefined) return def;
+  const s = String(valore).trim().toLowerCase();
+  if (["1", "alta", "massima", "urgente", "high"].includes(s)) return 1;
+  if (["2", "normale", "media", "normal"].includes(s)) return 2;
+  if (["3", "bassa", "low"].includes(s)) return 3;
+  return def;
+}
+
 // ==============================================================================
-// 2. CARICAMENTO DATI DA BACKEND REST API (SINCRONIZZAZIONE REAL-TIME)
+// 2. MOTORE DATI IBRIDO (AUTONOMO NATIVO macOS + SINCRONIZZAZIONE SQLITE)
 // ==============================================================================
 
+async function fetchConTimeout(url, options = {}, timeoutMs = 1200) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return res;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
+
 async function loadData() {
-  await Promise.all([
-    caricaContatti(),
-    caricaStatistiche(),
-    caricaCalendario(),
-    caricaDuplicati()
-  ]);
+  try {
+    const res = await fetchConTimeout(`${API_BASE}/api/contatti`);
+    if (!res.ok) throw new Error("Server non attivo");
+    const json = await res.json();
+    if (json.ok && Array.isArray(json.data)) {
+      state.contatti = json.data.map(arricchisciContattoClient);
+      state.isApiAvailable = true;
+      salvaStorageLocale();
+      aggiornaBadgeStatoDb(true);
+      await Promise.all([caricaStatistiche(), caricaCalendario(), caricaDuplicati()]);
+    }
+  } catch (err) {
+    state.isApiAvailable = false;
+    aggiornaBadgeStatoDb(false);
+    if (!state.contatti || state.contatti.length === 0) {
+      caricaDatiDefaultLocali();
+    } else {
+      ricalcolaTuttoInLocale();
+    }
+  }
+
   renderAll();
   if (state.selectedContact && document.getElementById("detailDrawer").classList.contains("open")) {
     const aggiornato = state.contatti.find(c => c.id === state.selectedContact.id);
@@ -270,43 +349,31 @@ async function loadData() {
   }
 }
 
-async function caricaContatti() {
-  try {
-    const res = await fetch(`${API_BASE}/api/contatti`);
-    if (!res.ok) throw new Error("Errore API contatti");
-    const json = await res.json();
-    if (json.ok && Array.isArray(json.data)) {
-      state.contatti = json.data.map(arricchisciContattoClient);
-      state.isApiAvailable = true;
-      aggiornaBadgeStatoDb(true);
-    }
-  } catch (err) {
-    state.isApiAvailable = false;
-    aggiornaBadgeStatoDb(false);
-    if (!state.contatti || state.contatti.length === 0) {
-      caricaDatiDefaultLocali();
-    }
-  }
-}
-
 async function caricaStatistiche() {
+  if (!state.isApiAvailable) {
+    calcolaStatisticheLocali();
+    return;
+  }
   try {
-    const res = await fetch(`${API_BASE}/api/statistiche`);
-    if (!res.ok) throw new Error("Errore API statistiche");
+    const res = await fetchConTimeout(`${API_BASE}/api/statistiche`);
     const json = await res.json();
     if (json.ok && json.data) {
       state.statistiche = json.data;
       return;
     }
   } catch (err) {
-    calcolaStatisticheLocali();
+    // Fallback al calcolo locale
   }
+  calcolaStatisticheLocali();
 }
 
 async function caricaCalendario() {
+  if (!state.isApiAvailable) {
+    ricalcolaContatoriCalendarioLocali();
+    return;
+  }
   try {
-    const res = await fetch(`${API_BASE}/api/calendario`);
-    if (!res.ok) throw new Error("Errore API calendario");
+    const res = await fetchConTimeout(`${API_BASE}/api/calendario`);
     const json = await res.json();
     if (json.ok && Array.isArray(json.data)) {
       state.calendarioAppuntamenti = json.data.map(arricchisciContattoClient);
@@ -318,32 +385,64 @@ async function caricaCalendario() {
       return;
     }
   } catch (err) {
-    ricalcolaContatoriCalendarioLocali();
+    // Fallback al calcolo locale
   }
+  ricalcolaContatoriCalendarioLocali();
 }
 
 async function caricaDuplicati() {
+  if (!state.isApiAvailable) {
+    calcolaDuplicatiLocali();
+    return;
+  }
   try {
-    const res = await fetch(`${API_BASE}/api/duplicati`);
-    if (!res.ok) throw new Error("Errore API duplicati");
+    const res = await fetchConTimeout(`${API_BASE}/api/duplicati`);
     const json = await res.json();
     if (json.ok && Array.isArray(json.data)) {
       state.duplicati = json.data;
       return;
     }
   } catch (err) {
-    calcolaDuplicatiLocali();
+    // Fallback al calcolo locale
   }
+  calcolaDuplicatiLocali();
 }
 
 function arricchisciContattoClient(c) {
   const dr = String(c.data_ricontatto || "").trim();
+  const tot = Number(c.totale_ordini) || 0;
+  const num = Number(c.numero_ordini) || (tot > 0 ? 1 : 0);
+  let storico = Array.isArray(c.ordini_storico) ? c.ordini_storico : [];
+  if (storico.length === 0 && tot > 0) {
+    storico = [
+      {
+        id: c.id * 100 + 1,
+        contatto_id: c.id,
+        importo: tot,
+        note_ordine: "Storico ordini B2B confermato",
+        data_ordine: c.ultimo_ordine || c.data_aggiornamento || getNowTimestampStr()
+      }
+    ];
+  }
   return {
     ...c,
+    priorita: Number(c.priorita) || 2,
+    totale_ordini: tot,
+    numero_ordini: num,
+    ordini_storico: storico,
+    regione: c.regione || deduciRegioneClient(c.citta),
     data_ricontatto: dr,
     motivo_ricontatto: String(c.motivo_ricontatto || "").trim(),
-    stato_ricontatto: c.stato_ricontatto || calcolaStatoRicontattoClient(dr)
+    stato_ricontatto: calcolaStatoRicontattoClient(dr)
   };
+}
+
+function ricalcolaTuttoInLocale() {
+  state.contatti = state.contatti.map(arricchisciContattoClient);
+  salvaStorageLocale();
+  ricalcolaContatoriCalendarioLocali();
+  calcolaDuplicatiLocali();
+  calcolaStatisticheLocali();
 }
 
 function ricalcolaContatoriCalendarioLocali() {
@@ -368,37 +467,32 @@ function ricalcolaContatoriCalendarioLocali() {
   };
 }
 
-function aggiornaBadgeStatoDb(attivo) {
+function aggiornaBadgeStatoDb(serverAttivo) {
   const el = document.getElementById("dbStatusIndicator");
   if (!el) return;
-  if (attivo) {
-    el.className = "db-status-indicator online";
-    el.innerHTML = '<span class="status-dot"></span> SQLite Attivo (crm_ingrosso.db)';
+  el.className = "db-status-indicator online";
+  if (serverAttivo) {
+    el.innerHTML = '<span class="status-dot"></span> Motore SQLite Attivo (crm_ingrosso.db)';
   } else {
-    el.className = "db-status-indicator offline";
-    el.innerHTML = '<span class="status-dot"></span> Modalità Locale Offline';
+    el.innerHTML = '<span class="status-dot"></span> App Nativa macOS Attiva (Database Locale)';
   }
 }
 
-function caricaDatiDefaultLocali() {
-  const salvati = localStorage.getItem("noga_crm_demo_contatti_v3");
-  if (salvati) {
-    try {
-      state.contatti = JSON.parse(salvati).map(arricchisciContattoClient);
-      ricalcolaContatoriCalendarioLocali();
-      calcolaDuplicatiLocali();
-      calcolaStatisticheLocali();
-      return;
-    } catch (e) {
-      // Usa dataset fallback
-    }
-  }
-
+function generaDatasetDemoCompleto() {
   const now = new Date();
   const ieri = new Date(now.getTime() - 86400000);
   const domani = new Date(now.getTime() + 86400000);
+  const tra3gg = new Date(now.getTime() + 3 * 86400000);
 
-  state.contatti = [
+  const ieriStr = formatDateISO(ieri);
+  const oggiStr = formatDateISO(now);
+  const domaniStr = formatDateISO(domani);
+  const tra3ggStr = formatDateISO(tra3gg);
+
+  const oraOggi1 = now.getHours() < 22 ? `${pad2(now.getHours() + 1)}:00` : "23:30";
+  const oraOggi2 = now.getHours() >= 17 ? "23:45" : "17:30";
+
+  return [
     {
       id: 1,
       azienda: "Calzature Brera Luxury S.r.l.",
@@ -411,14 +505,82 @@ function caricaDatiDefaultLocali() {
       esito: "Interessato (Ordine preso)",
       totale_ordini: 8050.0,
       numero_ordini: 2,
-      data_ricontatto: `${formatDateISO(domani)} 11:00`,
+      data_ricontatto: `${tra3ggStr} 11:00`,
       motivo_ricontatto: "Follow-up nuovo ordine",
-      note: "Catena 3 boutique Milano | [ORDINE CONFERMATO] € 8050.00",
-      data_aggiornamento: `${formatDateISO(now)} 09:30`,
-      ultimo_ordine: `${formatDateISO(now)} 09:30`
+      note: "Catena con 3 boutique in centro a Milano | [2026-10-10 10:30] ORDINE CONFERMATO: € 4850.00 - Collezione Autunno/Inverno Donna | [2026-10-16 15:15] ORDINE CONFERMATO: € 3200.00 - Riassortimento stivaletti pelle",
+      data_aggiornamento: "2026-10-16 15:15",
+      ultimo_ordine: "2026-10-16 15:15",
+      ordini_storico: [
+        { id: 102, contatto_id: 1, importo: 3200.0, note_ordine: "Riassortimento stivaletti pelle NOGA ROMA", data_ordine: "2026-10-16 15:15" },
+        { id: 101, contatto_id: 1, importo: 4850.0, note_ordine: "Collezione Autunno/Inverno Donna - 45 paia", data_ordine: "2026-10-10 10:30" }
+      ]
     },
     {
       id: 2,
+      azienda: "Atelier del Passo Condotti",
+      referente: "Marco Valeri",
+      telefono: "06 55443322",
+      citta: "Roma",
+      regione: "Lazio",
+      priorita: 1,
+      chiamato: "Sì",
+      esito: "Interessato (Ordine preso)",
+      totale_ordini: 6400.0,
+      numero_ordini: 2,
+      data_ricontatto: "",
+      motivo_ricontatto: "",
+      note: "Showroom storico vicino Piazza di Spagna | [2026-10-12 11:00] ORDINE CONFERMATO: € 6400.00 - Linea mocassini e décolleté artigianali",
+      data_aggiornamento: "2026-10-12 11:00",
+      ultimo_ordine: "2026-10-12 11:00",
+      ordini_storico: [
+        { id: 202, contatto_id: 2, importo: 2500.0, note_ordine: "Integrazione taglie 37-40 color sabbia e noir", data_ordine: "2026-10-12 11:00" },
+        { id: 201, contatto_id: 2, importo: 3900.0, note_ordine: "Primo impianto linea cerimonia e mocassini", data_ordine: "2026-10-04 09:45" }
+      ]
+    },
+    {
+      id: 3,
+      azienda: "Toscana Shoes & Leather S.n.c.",
+      referente: "Lorenzo Guicciardini",
+      telefono: "055 2233445",
+      citta: "Firenze",
+      regione: "Toscana",
+      priorita: 1,
+      chiamato: "Sì",
+      esito: "Interessato (Ordine preso)",
+      totale_ordini: 5100.0,
+      numero_ordini: 1,
+      data_ricontatto: "",
+      motivo_ricontatto: "",
+      note: "Concept store lungarno, clientela internazionale | [2026-10-14 16:40] ORDINE CONFERMATO: € 5100.00 - Capsule artigianale NOGA",
+      data_aggiornamento: "2026-10-14 16:40",
+      ultimo_ordine: "2026-10-14 16:40",
+      ordini_storico: [
+        { id: 301, contatto_id: 3, importo: 5100.0, note_ordine: "Capsule artigianale NOGA ROMA 50 paia", data_ordine: "2026-10-14 16:40" }
+      ]
+    },
+    {
+      id: 4,
+      azienda: "Partenope Moda Calzature S.r.l.",
+      referente: "Cav. Gennaro Esposito",
+      telefono: "081 7766554",
+      citta: "Napoli",
+      regione: "Campania",
+      priorita: 2,
+      chiamato: "Sì",
+      esito: "Interessato (Ordine preso)",
+      totale_ordini: 2950.0,
+      numero_ordini: 1,
+      data_ricontatto: "",
+      motivo_ricontatto: "",
+      note: "2 punti vendita a Chiaia e Vomero | [2026-10-15 12:20] ORDINE CONFERMATO: € 2950.00 - Campionatura + primo ordine",
+      data_aggiornamento: "2026-10-15 12:20",
+      ultimo_ordine: "2026-10-15 12:20",
+      ordini_storico: [
+        { id: 401, contatto_id: 4, importo: 2950.0, note_ordine: "Campionatura + primo ordine stagione", data_ordine: "2026-10-15 12:20" }
+      ]
+    },
+    {
+      id: 5,
       azienda: "Galleria Sabauda Footwear",
       referente: "Elena Ferrero",
       telefono: "011 4455667",
@@ -429,40 +591,178 @@ function caricaDatiDefaultLocali() {
       esito: "Da richiamare",
       totale_ordini: 0.0,
       numero_ordini: 0,
-      data_ricontatto: `${formatDateISO(ieri)} 15:00`,
-      motivo_ricontatto: "Titolare assente - Richiamare",
-      note: "Titolare interessata al listino B2B, richiamare con urgenza",
-      data_aggiornamento: `${formatDateISO(ieri)} 15:00`,
-      ultimo_ordine: ""
+      data_ricontatto: `${ieriStr} 11:00`,
+      motivo_ricontatto: "Appuntamento concordato",
+      note: `Titolare molto interessata al catalogo B2B | [${ieriStr} 09:30] RICONTATTO PROGRAMMATO PER ${ieriStr} 11:00 (Appuntamento concordato) - Definire quantità ordine autunno`,
+      data_aggiornamento: `${ieriStr} 09:30`,
+      ultimo_ordine: "",
+      ordini_storico: []
     },
     {
-      id: 3,
-      azienda: "Boutique Via Toledo",
-      referente: "Gennaro Esposito",
-      telefono: "081 9988776",
-      citta: "Napoli",
-      regione: "Campania",
+      id: 6,
+      azienda: "Emilia Boutique Calzature S.a.s.",
+      referente: "Andrea Bentivoglio",
+      telefono: "051 3344556",
+      citta: "Bologna",
+      regione: "Emilia-Romagna",
+      priorita: 2,
+      chiamato: "Sì",
+      esito: "Interessato (Ordine preso)",
+      totale_ordini: 2150.0,
+      numero_ordini: 1,
+      data_ricontatto: "",
+      motivo_ricontatto: "",
+      note: "Negozio sotto i portici del centro | [2026-10-13 10:10] ORDINE CONFERMATO: € 2150.00 - Ordine prova collezione donna",
+      data_aggiornamento: "2026-10-13 10:10",
+      ultimo_ordine: "2026-10-13 10:10",
+      ordini_storico: [
+        { id: 601, contatto_id: 6, importo: 2150.0, note_ordine: "Ordine prova collezione donna", data_ordine: "2026-10-13 10:10" }
+      ]
+    },
+    {
+      id: 7,
+      azienda: "San Marco Luxury Shoes",
+      referente: "Alvise Contarini",
+      telefono: "041 9988776",
+      citta: "Venezia",
+      regione: "Veneto",
       priorita: 1,
       chiamato: "No",
       esito: "Da richiamare",
       totale_ordini: 0.0,
       numero_ordini: 0,
-      data_ricontatto: `${formatDateISO(now)} 17:30`,
+      data_ricontatto: `${oggiStr} ${oraOggi1}`,
+      motivo_ricontatto: "Titolare assente - Richiamare",
+      note: `Inviato lookbook digitale su WhatsApp | [${oggiStr} 09:00] RICONTATTO PROGRAMMATO PER ${oggiStr} ${oraOggi1} (Titolare assente - Richiamare) - Parlare con Sig. Contarini`,
+      data_aggiornamento: `${oggiStr} 09:00`,
+      ultimo_ordine: "",
+      ordini_storico: []
+    },
+    {
+      id: 8,
+      azienda: "Bari Moda & Pelle S.r.l.",
+      referente: "Domenico De Santis",
+      telefono: "080 6655443",
+      citta: "Bari",
+      regione: "Puglia",
+      priorita: 2,
+      chiamato: "No",
+      esito: "Da richiamare",
+      totale_ordini: 0.0,
+      numero_ordini: 0,
+      data_ricontatto: `${oggiStr} ${oraOggi2}`,
+      motivo_ricontatto: "Non risponde - Riprovare",
+      note: `Distributore regionale con 4 negozi | [${oggiStr} 10:15] RICONTATTO PROGRAMMATO PER ${oggiStr} ${oraOggi2} (Non risponde - Riprovare) - Riprovare nel pomeriggio`,
+      data_aggiornamento: `${oggiStr} 10:15`,
+      ultimo_ordine: "",
+      ordini_storico: []
+    },
+    {
+      id: 9,
+      azienda: "Via Libertà Concept Store",
+      referente: "Costanza Altavilla",
+      telefono: "091 5566778",
+      citta: "Palermo",
+      regione: "Sicilia",
+      priorita: 1,
+      chiamato: "No",
+      esito: "Da richiamare",
+      totale_ordini: 0.0,
+      numero_ordini: 0,
+      data_ricontatto: `${domaniStr} 10:30`,
       motivo_ricontatto: "Appuntamento concordato",
-      note: "Inviato catalogo WhatsApp, richiamare per conferma taglie",
-      data_aggiornamento: `${formatDateISO(now)} 10:00`,
-      ultimo_ordine: ""
+      note: `Richiede esclusiva di zona per il quartiere Libertà | [${oggiStr} 11:00] RICONTATTO PROGRAMMATO PER ${domaniStr} 10:30 (Appuntamento concordato)`,
+      data_aggiornamento: `${oggiStr} 11:00`,
+      ultimo_ordine: "",
+      ordini_storico: []
+    },
+    {
+      id: 10,
+      azienda: "Lanterna Calzature S.n.c.",
+      referente: "Stefano Parodi",
+      telefono: "010 4433221",
+      citta: "Genova",
+      regione: "Liguria",
+      priorita: 3,
+      chiamato: "Sì",
+      esito: "Non interessato (Rifiutato)",
+      totale_ordini: 0.0,
+      numero_ordini: 0,
+      data_ricontatto: "",
+      motivo_ricontatto: "",
+      note: "Magazzino già saturo per la stagione corrente.",
+      data_aggiornamento: "2026-10-09 15:30",
+      ultimo_ordine: "",
+      ordini_storico: []
+    },
+    {
+      id: 11,
+      azienda: "Brera Luxury Milano (Showroom)",
+      referente: "",
+      telefono: "02-98765431",
+      citta: "Milano",
+      regione: "Lombardia",
+      priorita: 2,
+      chiamato: "No",
+      esito: "Da richiamare",
+      totale_ordini: 1450.0,
+      numero_ordini: 1,
+      data_ricontatto: "",
+      motivo_ricontatto: "",
+      note: "Scheda inserita da fiera MICAM (da unire con Calzature Brera Luxury)",
+      data_aggiornamento: "2026-10-15 18:00",
+      ultimo_ordine: "2026-10-15 18:00",
+      ordini_storico: [
+        { id: 1101, contatto_id: 11, importo: 1450.0, note_ordine: "Ordine rapido fiera MICAM", data_ordine: "2026-10-15 18:00" }
+      ]
+    },
+    {
+      id: 12,
+      azienda: "Atelier del Passo Condotti Srl",
+      referente: "M. Valeri",
+      telefono: "+39 06 55443399",
+      citta: "Roma",
+      regione: "Lazio",
+      priorita: 3,
+      chiamato: "No",
+      esito: "In attesa",
+      totale_ordini: 0.0,
+      numero_ordini: 0,
+      data_ricontatto: "",
+      motivo_ricontatto: "",
+      note: "Secondo recapito ufficio amministrazione Roma",
+      data_aggiornamento: "2026-10-11 09:30",
+      ultimo_ordine: "",
+      ordini_storico: []
     }
   ].map(arricchisciContattoClient);
+}
 
-  salvaStorageLocale();
-  ricalcolaContatoriCalendarioLocali();
-  calcolaDuplicatiLocali();
-  calcolaStatisticheLocali();
+function caricaDatiDefaultLocali() {
+  const salvati = localStorage.getItem(STORAGE_KEY_CONTATTI);
+  if (salvati) {
+    try {
+      const parsed = JSON.parse(salvati);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        state.contatti = parsed.map(arricchisciContattoClient);
+        ricalcolaTuttoInLocale();
+        return;
+      }
+    } catch (e) {
+      // Rigenera dataset demo
+    }
+  }
+
+  state.contatti = generaDatasetDemoCompleto();
+  ricalcolaTuttoInLocale();
 }
 
 function salvaStorageLocale() {
-  localStorage.setItem("noga_crm_demo_contatti_v3", JSON.stringify(state.contatti));
+  try {
+    localStorage.setItem(STORAGE_KEY_CONTATTI, JSON.stringify(state.contatti));
+  } catch (e) {
+    // Storage pieno o non disponibile
+  }
 }
 
 function calcolaDuplicatiLocali() {
@@ -483,13 +783,16 @@ function calcolaDuplicatiLocali() {
       if ((t1 && t1 === t2) || (a1 && a1 === a2)) {
         membri.push(c2);
         usati.add(j);
-        motivo = t1 && t1 === t2 ? "Stesso Numero di Telefono" : "Stessa Ragione Sociale";
+        motivo = t1 && t1 === t2
+          ? `Stesso Numero di Telefono (${t1})`
+          : "Ragione Sociale Coincidente";
       }
     }
     if (membri.length > 1) {
       usati.add(i);
+      membri.sort((x, y) => (Number(y.totale_ordini) || 0) - (Number(x.totale_ordini) || 0) || x.id - y.id);
       gruppi.push({
-        id_gruppo: `DUP-${c1.id}`,
+        id_gruppo: `DUP-${membri[0].id}`,
         motivo,
         principale_suggerito_id: membri[0].id,
         contatti: membri
@@ -505,7 +808,9 @@ function calcolaStatisticheLocali() {
   const chiamati = state.contatti.filter(c => c.chiamato === "Sì").length;
   const interessati = state.contatti.filter(c => c.esito === "Interessato (Ordine preso)").length;
   const rifiutati = state.contatti.filter(c => c.esito === "Non interessato (Rifiutato)").length;
-  const da_contattare = state.contatti.filter(c => c.chiamato === "No" || c.esito === "Da richiamare").length;
+  const da_contattare = state.contatti.filter(
+    c => c.chiamato === "No" || c.esito === "Da richiamare" || Boolean(c.data_ricontatto)
+  ).length;
   const da_richiamare = state.contatti.filter(c => c.esito === "Da richiamare").length;
   const in_attesa = state.contatti.filter(c => c.esito === "In attesa").length;
 
@@ -609,7 +914,7 @@ function renderKpis() {
 function getFilteredContacts(mode = "tutti") {
   const filtrati = state.contatti.filter(c => {
     if (mode === "da_chiamare") {
-      if (c.chiamato !== "No" && c.esito !== "Da richiamare") return false;
+      if (c.chiamato !== "No" && c.esito !== "Da richiamare" && !c.data_ricontatto) return false;
     } else if (mode === "ordini_confermati") {
       if (c.esito !== "Interessato (Ordine preso)" && !(Number(c.totale_ordini) > 0)) return false;
     }
@@ -807,7 +1112,7 @@ function renderCodaTable() {
   `).join("");
 }
 
-// --- TAB 2: CALENDARIO MENSILE INTERATTIVO & AGENDA OPERATIVA ---
+// --- TAB CALENDARIO MENSILE INTERATTIVO & AGENDA OPERATIVA ---
 function renderCalendarioTab() {
   const cal = state.calendarioContatori;
   document.getElementById("calCountScaduti").textContent = cal.scaduti || 0;
@@ -821,7 +1126,7 @@ function renderCalendarioTab() {
 
 function renderCalendarMonthGrid() {
   const year = state.calendarYear;
-  const month = state.calendarMonth; // 0-11
+  const month = state.calendarMonth;
   const label = document.getElementById("calMonthYearLabel");
   if (label) {
     label.textContent = `${NOMI_MESI_IT[month]} ${year}`;
@@ -834,11 +1139,9 @@ function renderCalendarMonthGrid() {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const prevMonthDays = new Date(year, month, 0).getDate();
 
-  // Lunedì = 0 ... Domenica = 6
   const startOffset = (firstDayOfMonth.getDay() + 6) % 7;
   const oggiStr = formatDateISO(new Date());
 
-  // Mappa appuntamenti per data YYYY-MM-DD
   const mapByDate = {};
   state.calendarioAppuntamenti.forEach(app => {
     const dStr = (app.data_ricontatto || "").slice(0, 10);
@@ -948,7 +1251,6 @@ function renderCalendarAgendaList() {
 
   let lista = [...state.calendarioAppuntamenti];
 
-  // Applica eventuali filtri globali di ricerca / priorità
   if (state.filterPriorita) {
     lista = lista.filter(c => String(c.priorita || 2) === String(state.filterPriorita));
   }
@@ -1055,7 +1357,7 @@ function renderCalendarAgendaList() {
   }).join("");
 }
 
-// --- TAB 3: ORDINI CONFERMATI + GRAFICO TOP CLIENTI ---
+// --- TAB ORDINI CONFERMATI + GRAFICO TOP CLIENTI ---
 function renderOrdiniTab() {
   const tbody = document.getElementById("tbodyOrdini");
   const emptyState = document.getElementById("emptyOrdini");
@@ -1171,7 +1473,7 @@ function renderOrdiniTab() {
   }).join("");
 }
 
-// --- TAB 4: ANAGRAFICA MASTER ---
+// --- TAB ANAGRAFICA MASTER ---
 function renderAnagraficaTable() {
   const tbody = document.getElementById("tbodyAnagrafica");
   const emptyState = document.getElementById("emptyAnagrafica");
@@ -1255,7 +1557,7 @@ function renderAnagraficaTable() {
   }).join("");
 }
 
-// --- TAB 5: CRUSCOTTO & ANALISI TERRITORIALE PER CITTÀ E REGIONE ---
+// --- TAB CRUSCOTTO & ANALISI TERRITORIALE PER CITTÀ E REGIONE ---
 function renderAnalytics() {
   const s = state.statistiche;
   document.getElementById("funnelTotali").textContent = s.totali || 0;
@@ -1331,7 +1633,7 @@ function renderTerritorialChart() {
   }).join("");
 }
 
-// --- TAB 6: DUPLICATI & RIDONDANZE ---
+// --- TAB DUPLICATI & RIDONDANZE ---
 function renderDuplicatiTab() {
   const wrapper = document.getElementById("duplicatiGroupsContainer");
   const emptyCard = document.getElementById("emptyDuplicatiCard");
@@ -1406,31 +1708,38 @@ function renderDuplicatiTab() {
 }
 
 // ==============================================================================
-// 4. AZIONI OPERATIVE: PRIORITÀ, ESITO + CALENDARIO, ORDINI (€), CRUD, MERGE
+// 4. AZIONI OPERATIVE (100% AUTONOME + SYNC SQLITE SE PRESENTE)
 // ==============================================================================
 
 async function ciclaPriorita(idContatto, prioritaAttuale) {
   const prossima = prioritaAttuale === 1 ? 2 : prioritaAttuale === 2 ? 3 : 1;
-  try {
-    const res = await fetch(`${API_BASE}/api/contatti/${idContatto}/priorita`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ priorita: prossima })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      const labels = { 1: "Alta (1)", 2: "Normale (2)", 3: "Bassa (3)" };
-      showToast(`Priorità #${idContatto} impostata a ${labels[prossima]}`, "success");
-      await loadData();
-      return;
+  const labels = { 1: "Alta (1)", 2: "Normale (2)", 3: "Bassa (3)" };
+
+  if (state.isApiAvailable) {
+    try {
+      const res = await fetchConTimeout(`${API_BASE}/api/contatti/${idContatto}/priorita`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priorita: prossima })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(`Priorità #${idContatto} impostata a ${labels[prossima]}`, "success");
+        await loadData();
+        return;
+      }
+    } catch (err) {
+      // Prosegui in locale
     }
-  } catch (err) {
-    const c = state.contatti.find(x => x.id === idContatto);
-    if (c) {
-      c.priorita = prossima;
-      salvaStorageLocale();
-      renderAll();
-    }
+  }
+
+  const c = state.contatti.find(x => x.id === idContatto);
+  if (c) {
+    c.priorita = prossima;
+    c.data_aggiornamento = getNowTimestampStr();
+    ricalcolaTuttoInLocale();
+    renderAll();
+    showToast(`Priorità #${idContatto} impostata a ${labels[prossima]}`, "success");
   }
 }
 
@@ -1517,43 +1826,63 @@ async function segnaRicontattoCompletato(idContatto) {
 }
 
 async function inviaPianificazioneBackend(idContatto, dataRicontatto, motivoRicontatto, priorita, notaExtra) {
-  try {
-    const res = await fetch(`${API_BASE}/api/contatti/${idContatto}/ricontatto`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        data_ricontatto: dataRicontatto,
-        motivo_ricontatto: motivoRicontatto,
-        priorita,
-        nota_extra: notaExtra
-      })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      if (dataRicontatto) {
-        showToast(`Appuntamento fissato per ${dataRicontatto}`, "success");
-      } else {
-        showToast("Appuntamento completato / rimosso dal calendario", "success");
+  if (state.isApiAvailable) {
+    try {
+      const res = await fetchConTimeout(`${API_BASE}/api/contatti/${idContatto}/ricontatto`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          data_ricontatto: dataRicontatto,
+          motivo_ricontatto: motivoRicontatto,
+          priorita,
+          nota_extra: notaExtra
+        })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(
+          dataRicontatto
+            ? `Appuntamento fissato per ${dataRicontatto}`
+            : "Appuntamento completato / rimosso dal calendario",
+          "success"
+        );
+        await loadData();
+        return;
       }
-      await loadData();
-      return;
+    } catch (err) {
+      // Fallback locale immediato
     }
-    showToast(json.errore || "Errore salvataggio ricontatto", "error");
-  } catch (err) {
-    const c = state.contatti.find(x => x.id === idContatto);
-    if (c) {
-      c.data_ricontatto = dataRicontatto;
-      c.motivo_ricontatto = dataRicontatto ? motivoRicontatto : "";
-      c.stato_ricontatto = calcolaStatoRicontattoClient(dataRicontatto);
-      if (dataRicontatto && c.esito !== "Interessato (Ordine preso)") {
+  }
+
+  const c = state.contatti.find(x => x.id === idContatto);
+  if (c) {
+    const adesso = getNowTimestampStr();
+    c.data_ricontatto = dataRicontatto || "";
+    c.motivo_ricontatto = dataRicontatto ? (motivoRicontatto || "Appuntamento concordato") : "";
+    c.stato_ricontatto = calcolaStatoRicontattoClient(c.data_ricontatto);
+    if (dataRicontatto) {
+      if (c.esito !== "Interessato (Ordine preso)") {
         c.esito = "Da richiamare";
       }
-      if (priorita) c.priorita = priorita;
-      salvaStorageLocale();
-      calcolaStatisticheLocali();
-      renderAll();
-      showToast("Calendario aggiornato in locale", "success");
+      const suffisso = notaExtra ? ` - ${notaExtra}` : "";
+      c.note = accodaNotaClient(
+        c.note,
+        `[${adesso}] RICONTATTO PROGRAMMATO PER ${c.data_ricontatto} (${c.motivo_ricontatto})${suffisso}`
+      );
+    } else if (notaExtra) {
+      c.note = accodaNotaClient(c.note, `[${adesso}] RICONTATTO COMPLETATO: ${notaExtra}`);
     }
+    if (priorita) c.priorita = priorita;
+    c.data_aggiornamento = adesso;
+
+    ricalcolaTuttoInLocale();
+    renderAll();
+    showToast(
+      dataRicontatto
+        ? `Appuntamento fissato per ${dataRicontatto}`
+        : "Appuntamento completato / rimosso dal calendario",
+      "success"
+    );
   }
 }
 
@@ -1617,47 +1946,109 @@ async function salvaFormContatto(e) {
     return;
   }
 
-  try {
-    if (editId) {
-      const res = await fetch(`${API_BASE}/api/contatti/${editId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ azienda, referente, telefono, citta, regione, priorita, note })
-      });
-      const json = await res.json();
-      if (json.ok) {
-        showToast("Scheda cliente aggiornata con successo", "success");
-        chiudiModalNuovo(true);
-        await loadData();
-      } else {
+  if (state.isApiAvailable) {
+    try {
+      if (editId) {
+        const res = await fetchConTimeout(`${API_BASE}/api/contatti/${editId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ azienda, referente, telefono, citta, regione, priorita, note })
+        });
+        const json = await res.json();
+        if (json.ok) {
+          showToast("Scheda cliente aggiornata con successo", "success");
+          chiudiModalNuovo(true);
+          await loadData();
+          return;
+        }
         showToast(json.errore || "Errore durante l'aggiornamento", "error");
-      }
-    } else {
-      const res = await fetch(`${API_BASE}/api/contatti`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          azienda,
-          referente,
-          telefono,
-          citta,
-          regione,
-          priorita,
-          note,
-          totale_ordini: totaleOrdiniInit
-        })
-      });
-      const json = await res.json();
-      if (json.ok) {
-        showToast("Nuovo cliente registrato con successo", "success");
-        chiudiModalNuovo(true);
-        await loadData();
+        return;
       } else {
+        const res = await fetchConTimeout(`${API_BASE}/api/contatti`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            azienda,
+            referente,
+            telefono,
+            citta,
+            regione,
+            priorita,
+            note,
+            totale_ordini: totaleOrdiniInit
+          })
+        });
+        const json = await res.json();
+        if (json.ok) {
+          showToast("Nuovo cliente registrato con successo", "success");
+          chiudiModalNuovo(true);
+          await loadData();
+          return;
+        }
         showToast(json.errore || "Errore durante il salvataggio", "error");
+        return;
       }
+    } catch (err) {
+      // Fallback autonomo locale
     }
-  } catch (err) {
-    showToast("Errore di comunicazione con il server", "error");
+  }
+
+  // Esecuzione autonoma in-app (macOS Native Standalone)
+  const adesso = getNowTimestampStr();
+  if (editId) {
+    const idNum = parseInt(editId, 10);
+    const c = state.contatti.find(x => x.id === idNum);
+    if (c) {
+      c.azienda = azienda;
+      c.referente = referente;
+      c.telefono = telefono;
+      c.citta = citta;
+      c.regione = regione;
+      c.priorita = priorita;
+      c.note = note;
+      c.data_aggiornamento = adesso;
+      ricalcolaTuttoInLocale();
+      chiudiModalNuovo(true);
+      renderAll();
+      showToast("Scheda cliente aggiornata con successo", "success");
+    }
+  } else {
+    const telNorm = normalizzaTelefonoClient(telefono);
+    const duplicato = state.contatti.some(x => normalizzaTelefonoClient(x.telefono) === telNorm);
+    if (duplicato) {
+      showToast(`Il numero '${telefono}' è già presente a sistema`, "error");
+      return;
+    }
+    const maxId = state.contatti.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0);
+    const nuovoId = maxId + 1;
+    const nuovoContatto = arricchisciContattoClient({
+      id: nuovoId,
+      azienda,
+      referente,
+      telefono,
+      citta,
+      regione,
+      priorita,
+      chiamato: totaleOrdiniInit > 0 ? "Sì" : "No",
+      esito: totaleOrdiniInit > 0 ? "Interessato (Ordine preso)" : "In attesa",
+      totale_ordini: totaleOrdiniInit,
+      numero_ordini: totaleOrdiniInit > 0 ? 1 : 0,
+      data_ricontatto: "",
+      motivo_ricontatto: "",
+      note: totaleOrdiniInit > 0
+        ? accodaNotaClient(note, `[${adesso}] ORDINE CONFERMATO: € ${totaleOrdiniInit.toFixed(2)}`)
+        : note,
+      data_aggiornamento: adesso,
+      ultimo_ordine: totaleOrdiniInit > 0 ? adesso : "",
+      ordini_storico: totaleOrdiniInit > 0
+        ? [{ id: Date.now(), contatto_id: nuovoId, importo: totaleOrdiniInit, note_ordine: note || "Ordine iniziale", data_ordine: adesso }]
+        : []
+    });
+    state.contatti.push(nuovoContatto);
+    ricalcolaTuttoInLocale();
+    chiudiModalNuovo(true);
+    renderAll();
+    showToast("Nuovo cliente registrato con successo", "success");
   }
 }
 
@@ -1683,7 +2074,6 @@ function apriModalEsito(idContatto) {
   document.getElementById("textareaNuoveNote").value = "";
   document.getElementById("modalEsitoStoricoNote").textContent = c.note || "Nessuna nota precedente.";
 
-  // Campi ricontatto (vuoti di default così se l'operatore conclude senza fissare una nuova data, il vecchio appuntamento si chiude)
   document.getElementById("esitoInputDataRicontatto").value = "";
   document.getElementById("esitoInputOraRicontatto").value = "";
   document.getElementById("esitoSelectMotivoRicontatto").value = "";
@@ -1738,35 +2128,93 @@ async function salvaEsitoChiamata(e) {
   const motivoRic = document.getElementById("esitoSelectMotivoRicontatto").value.trim();
   const dataRicontattoCompleta = dataRic ? `${dataRic} ${oraRic}` : "";
 
-  try {
-    const res = await fetch(`${API_BASE}/api/contatti/${idContatto}/chiamata`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chiamato,
-        esito,
-        note: nuoveNote,
-        importo_ordine: esito === "Interessato (Ordine preso)" ? importoOrdine : 0.0,
-        referente,
-        priorita,
-        data_ricontatto: dataRicontattoCompleta,
-        motivo_ricontatto: dataRicontattoCompleta ? (motivoRic || "Appuntamento concordato") : ""
-      })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      if (dataRicontattoCompleta) {
-        showToast(`Esito salvato e ricontatto fissato per ${dataRicontattoCompleta}`, "success");
-      } else {
-        showToast("Esito telefonata salvato con successo", "success");
+  if (state.isApiAvailable) {
+    try {
+      const res = await fetchConTimeout(`${API_BASE}/api/contatti/${idContatto}/chiamata`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chiamato,
+          esito,
+          note: nuoveNote,
+          importo_ordine: esito === "Interessato (Ordine preso)" ? importoOrdine : 0.0,
+          referente,
+          priorita,
+          data_ricontatto: dataRicontattoCompleta,
+          motivo_ricontatto: dataRicontattoCompleta ? (motivoRic || "Appuntamento concordato") : ""
+        })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(
+          dataRicontattoCompleta
+            ? `Esito salvato e ricontatto fissato per ${dataRicontattoCompleta}`
+            : "Esito telefonata salvato con successo",
+          "success"
+        );
+        chiudiModalEsito();
+        await loadData();
+        return;
       }
-      chiudiModalEsito();
-      await loadData();
-    } else {
-      showToast(json.errore || "Errore durante l'aggiornamento", "error");
+    } catch (err) {
+      // Fallback autonomo locale
     }
-  } catch (err) {
-    showToast("Impossibile contattare il server", "error");
+  }
+
+  // Esecuzione autonoma in-app (macOS Native Standalone)
+  const c = state.contatti.find(x => x.id === idContatto);
+  if (c) {
+    const adesso = getNowTimestampStr();
+    let esitoFinale = esito;
+    if (dataRicontattoCompleta && esitoFinale !== "Interessato (Ordine preso)") {
+      esitoFinale = "Da richiamare";
+    }
+
+    c.chiamato = chiamato;
+    c.esito = esitoFinale;
+    if (referente) c.referente = referente;
+    c.priorita = priorita;
+    c.data_ricontatto = dataRicontattoCompleta;
+    c.motivo_ricontatto = dataRicontattoCompleta ? (motivoRic || "Appuntamento concordato") : "";
+    c.data_aggiornamento = adesso;
+
+    if (esitoFinale === "Interessato (Ordine preso)" && importoOrdine > 0) {
+      if (!Array.isArray(c.ordini_storico)) c.ordini_storico = [];
+      c.ordini_storico.unshift({
+        id: Date.now(),
+        contatto_id: c.id,
+        importo: importoOrdine,
+        note_ordine: nuoveNote || "Ordine confermato in chiamata",
+        data_ordine: adesso
+      });
+      c.totale_ordini = Number((Number(c.totale_ordini || 0) + importoOrdine).toFixed(2));
+      c.numero_ordini = (Number(c.numero_ordini) || 0) + 1;
+      c.ultimo_ordine = adesso;
+      const suff = nuoveNote ? ` - ${nuoveNote}` : "";
+      c.note = accodaNotaClient(c.note, `[${adesso}] ORDINE CONFERMATO: € ${importoOrdine.toFixed(2)}${suff}`);
+    } else if (!dataRicontattoCompleta && nuoveNote) {
+      c.note = accodaNotaClient(c.note, nuoveNote);
+    }
+
+    if (dataRicontattoCompleta) {
+      const suffRic = nuoveNote && !(esitoFinale === "Interessato (Ordine preso)" && importoOrdine > 0)
+        ? ` - ${nuoveNote}`
+        : "";
+      c.note = accodaNotaClient(
+        c.note,
+        `[${adesso}] RICONTATTO PROGRAMMATO PER ${dataRicontattoCompleta} (${c.motivo_ricontatto})${suffRic}`
+      );
+    }
+
+    ricalcolaTuttoInLocale();
+    chiudiModalEsito();
+    renderAll();
+    showToast(
+      dataRicontattoCompleta
+        ? `Esito salvato e ricontatto fissato per ${dataRicontattoCompleta}`
+        : "Esito telefonata salvato con successo",
+      "success"
+    );
   }
 }
 
@@ -1801,22 +2249,49 @@ async function salvaNuovoOrdine(e) {
     return;
   }
 
-  try {
-    const res = await fetch(`${API_BASE}/api/contatti/${idContatto}/ordini`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ importo, note_ordine: noteOrdine })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      showToast(`Ordine di ${formatEuro(importo)} registrato con successo`, "success");
-      chiudiModalNuovoOrdine();
-      await loadData();
-    } else {
-      showToast(json.errore || "Errore registrazione ordine", "error");
+  if (state.isApiAvailable) {
+    try {
+      const res = await fetchConTimeout(`${API_BASE}/api/contatti/${idContatto}/ordini`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ importo, note_ordine: noteOrdine })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(`Ordine di ${formatEuro(importo)} registrato con successo`, "success");
+        chiudiModalNuovoOrdine();
+        await loadData();
+        return;
+      }
+    } catch (err) {
+      // Fallback autonomo locale
     }
-  } catch (err) {
-    showToast("Impossibile contattare il server", "error");
+  }
+
+  const c = state.contatti.find(x => x.id === idContatto);
+  if (c) {
+    const adesso = getNowTimestampStr();
+    if (!Array.isArray(c.ordini_storico)) c.ordini_storico = [];
+    c.ordini_storico.unshift({
+      id: Date.now(),
+      contatto_id: c.id,
+      importo: Number(importo.toFixed(2)),
+      note_ordine: noteOrdine || "Riassortimento B2B",
+      data_ordine: adesso
+    });
+    c.chiamato = "Sì";
+    c.esito = "Interessato (Ordine preso)";
+    c.totale_ordini = Number((Number(c.totale_ordini || 0) + importo).toFixed(2));
+    c.numero_ordini = (Number(c.numero_ordini) || 0) + 1;
+    c.ultimo_ordine = adesso;
+    c.data_aggiornamento = adesso;
+    const suff = noteOrdine ? ` - ${noteOrdine}` : "";
+    c.note = accodaNotaClient(c.note, `[${adesso}] ORDINE CONFERMATO: € ${importo.toFixed(2)}${suff}`);
+
+    ricalcolaTuttoInLocale();
+    chiudiModalNuovoOrdine();
+    renderAll();
+    showToast(`Ordine di ${formatEuro(importo)} registrato con successo`, "success");
   }
 }
 
@@ -1840,47 +2315,82 @@ async function confermaEliminazioneCliente() {
   const idContatto = state.pendingDeleteId;
   if (!idContatto) return;
 
-  try {
-    const res = await fetch(`${API_BASE}/api/contatti/${idContatto}`, { method: "DELETE" });
-    const json = await res.json();
-    if (json.ok) {
-      showToast(`Cliente #${idContatto} eliminato definitivamente`, "success");
-      chiudiModalElimina();
-      chiudiDrawer();
-      await loadData();
-    } else {
-      showToast(json.errore || "Errore durante l'eliminazione", "error");
+  if (state.isApiAvailable) {
+    try {
+      const res = await fetchConTimeout(`${API_BASE}/api/contatti/${idContatto}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(`Cliente #${idContatto} eliminato definitivamente`, "success");
+        chiudiModalElimina();
+        chiudiDrawer();
+        await loadData();
+        return;
+      }
+    } catch (err) {
+      // Fallback autonomo locale
     }
-  } catch (err) {
-    state.contatti = state.contatti.filter(c => c.id !== idContatto);
-    salvaStorageLocale();
-    calcolaDuplicatiLocali();
-    calcolaStatisticheLocali();
-    chiudiModalElimina();
-    chiudiDrawer();
-    renderAll();
-    showToast("Cliente rimosso dall'archivio locale", "success");
   }
+
+  state.contatti = state.contatti.filter(c => c.id !== idContatto);
+  ricalcolaTuttoInLocale();
+  chiudiModalElimina();
+  chiudiDrawer();
+  renderAll();
+  showToast(`Cliente #${idContatto} eliminato definitivamente`, "success");
 }
 
 // --- MERGE DUPLICATI ---
 async function eseguiMergeContatti(idPrincipale, idSecondario) {
-  try {
-    const res = await fetch(`${API_BASE}/api/duplicati/unisci`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_principale: idPrincipale, id_secondario: idSecondario })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      showToast(json.messaggio || "Schede unite con successo", "success");
-      await loadData();
-    } else {
-      showToast(json.errore || "Errore durante l'unione delle schede", "error");
+  if (state.isApiAvailable) {
+    try {
+      const res = await fetchConTimeout(`${API_BASE}/api/duplicati/unisci`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_principale: idPrincipale, id_secondario: idSecondario })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        showToast(json.messaggio || "Schede unite con successo", "success");
+        await loadData();
+        return;
+      }
+    } catch (err) {
+      // Fallback autonomo locale
     }
-  } catch (err) {
-    showToast("Errore di rete durante l'unione", "error");
   }
+
+  const p = state.contatti.find(x => x.id === idPrincipale);
+  const s = state.contatti.find(x => x.id === idSecondario);
+  if (!p || !s) return;
+
+  if (!p.referente && s.referente) p.referente = s.referente;
+  if (!p.citta && s.citta) p.citta = s.citta;
+  if (!p.regione && s.regione) p.regione = s.regione;
+  p.priorita = Math.min(Number(p.priorita) || 2, Number(s.priorita) || 2);
+  if (s.chiamato === "Sì") p.chiamato = "Sì";
+  if (p.esito !== "Interessato (Ordine preso)" && s.esito === "Interessato (Ordine preso)") {
+    p.esito = "Interessato (Ordine preso)";
+  } else if (p.esito === "In attesa" && s.esito !== "In attesa") {
+    p.esito = s.esito;
+  }
+
+  p.totale_ordini = Number(((Number(p.totale_ordini) || 0) + (Number(s.totale_ordini) || 0)).toFixed(2));
+  p.numero_ordini = (Number(p.numero_ordini) || 0) + (Number(s.numero_ordini) || 0);
+  p.ordini_storico = [...(p.ordini_storico || []), ...(s.ordini_storico || [])];
+  if (!p.data_ricontatto && s.data_ricontatto) {
+    p.data_ricontatto = s.data_ricontatto;
+    p.motivo_ricontatto = s.motivo_ricontatto;
+  }
+  if (s.note && !String(p.note || "").includes(s.note)) {
+    p.note = accodaNotaClient(p.note, s.note);
+  }
+  p.note = accodaNotaClient(p.note, `[MERGE] Unito con scheda duplicata #${s.id} (${s.azienda})`);
+  p.data_aggiornamento = getNowTimestampStr();
+
+  state.contatti = state.contatti.filter(x => x.id !== idSecondario);
+  ricalcolaTuttoInLocale();
+  renderAll();
+  showToast(`Scheda #${idSecondario} unita correttamente nella scheda #${idPrincipale}`, "success");
 }
 
 // --- SLIDE-OVER DRAWER CON RICONTATTO, STORICO ORDINI (€) E TIMELINE NOTE ---
@@ -1909,7 +2419,6 @@ async function apriDrawer(idContatto) {
   document.getElementById("drawerData").textContent = c.data_aggiornamento || "-";
   document.getElementById("drawerLinkChiama").href = `tel:${c.telefono}`;
 
-  // Storico Note separato da |
   const notesContainer = document.getElementById("drawerNotesTimeline");
   if (!c.note) {
     notesContainer.innerHTML = '<div class="text-xs text-muted">Nessuna nota registrata.</div>';
@@ -1926,37 +2435,50 @@ async function apriDrawer(idContatto) {
   document.getElementById("drawerBackdrop").classList.add("open");
   document.getElementById("detailDrawer").classList.add("open");
 
-  // Carica Storico Ordini dal server
   const ordersContainer = document.getElementById("drawerOrdersTimeline");
-  ordersContainer.innerHTML = '<div class="text-xs text-muted">Caricamento storico ordini...</div>';
-  try {
-    const res = await fetch(`${API_BASE}/api/contatti/${c.id}/ordini`);
-    const json = await res.json();
-    if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
-      ordersContainer.innerHTML = json.data.map(ord => `
-        <div class="order-history-item">
-          <div>
-            <div class="order-history-amount">${formatEuro(ord.importo)}</div>
-            <div class="order-history-meta">${escapeHtml(ord.note_ordine || "Ordine B2B confermato")}</div>
+  if (state.isApiAvailable) {
+    try {
+      const res = await fetchConTimeout(`${API_BASE}/api/contatti/${c.id}/ordini`);
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
+        ordersContainer.innerHTML = json.data.map(ord => `
+          <div class="order-history-item">
+            <div>
+              <div class="order-history-amount">${formatEuro(ord.importo)}</div>
+              <div class="order-history-meta">${escapeHtml(ord.note_ordine || "Ordine B2B confermato")}</div>
+            </div>
+            <div class="order-history-date">${escapeHtml(ord.data_ordine)}</div>
           </div>
-          <div class="order-history-date">${escapeHtml(ord.data_ordine)}</div>
-        </div>
-      `).join("");
-    } else if ((Number(c.totale_ordini) || 0) > 0) {
-      ordersContainer.innerHTML = `
-        <div class="order-history-item">
-          <div>
-            <div class="order-history-amount">${formatEuro(c.totale_ordini)}</div>
-            <div class="order-history-meta">Totale ordini registrati</div>
-          </div>
-          <div class="order-history-date">${escapeHtml(c.ultimo_ordine || c.data_aggiornamento || "-")}</div>
-        </div>
-      `;
-    } else {
-      ordersContainer.innerHTML = '<div class="text-xs text-muted">Nessun ordine confermato per questo cliente.</div>';
+        `).join("");
+        return;
+      }
+    } catch (err) {
+      // Usa storico ordini in-memory
     }
-  } catch (err) {
-    ordersContainer.innerHTML = '<div class="text-xs text-muted">Storico ordini non disponibile offline.</div>';
+  }
+
+  if (Array.isArray(c.ordini_storico) && c.ordini_storico.length > 0) {
+    ordersContainer.innerHTML = c.ordini_storico.map(ord => `
+      <div class="order-history-item">
+        <div>
+          <div class="order-history-amount">${formatEuro(ord.importo)}</div>
+          <div class="order-history-meta">${escapeHtml(ord.note_ordine || "Ordine B2B confermato")}</div>
+        </div>
+        <div class="order-history-date">${escapeHtml(ord.data_ordine)}</div>
+      </div>
+    `).join("");
+  } else if ((Number(c.totale_ordini) || 0) > 0) {
+    ordersContainer.innerHTML = `
+      <div class="order-history-item">
+        <div>
+          <div class="order-history-amount">${formatEuro(c.totale_ordini)}</div>
+          <div class="order-history-meta">Totale ordini registrati</div>
+        </div>
+        <div class="order-history-date">${escapeHtml(c.ultimo_ordine || c.data_aggiornamento || "-")}</div>
+      </div>
+    `;
+  } else {
+    ordersContainer.innerHTML = '<div class="text-xs text-muted">Nessun ordine confermato per questo cliente.</div>';
   }
 }
 
@@ -1965,7 +2487,10 @@ function chiudiDrawer() {
   document.getElementById("detailDrawer").classList.remove("open");
 }
 
-// --- IMPORTAZIONE UNIVERSALE MULTI-FORMATO & ESPORTAZIONE CSV / JSON ---
+// ==============================================================================
+// 5. PARSER UNIVERSALE MULTI-FORMATO IN-APP (JSON, CSV, TSV/EXCEL, TXT)
+// ==============================================================================
+
 function apriModalImport() {
   document.getElementById("textareaJsonRaw").value = "";
   const feedback = document.getElementById("importFeedbackBox");
@@ -1982,28 +2507,185 @@ function leggiFileImportato(file) {
   const reader = new FileReader();
   reader.onload = (event) => {
     document.getElementById("textareaJsonRaw").value = event.target.result || "";
-    showToast(`File '${file.name}' caricato nell'editor. Clicca "Analizza e Importa"`, "success");
+    showToast(`File '${file.name}' pronto. Clicca "Analizza e Importa Contatti"`, "success");
   };
   reader.readAsText(file);
 }
 
-async function importaFileDefault() {
-  try {
-    const res = await fetch(`${API_BASE}/api/importa-json`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ percorso_file: "contatti_lead.json" })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      mostraFeedbackImport(json);
-      await loadData();
-    } else {
-      showToast(json.errore || "Errore importazione file default", "error");
+function parseTestoImportUniversaleClient(testoRaw) {
+  const testo = String(testoRaw || "").replace(/^\ufeff/, "").trim();
+  if (!testo) return { records: [], formato: "vuoto" };
+
+  if (testo.startsWith("[") || testo.startsWith("{")) {
+    let parsed = JSON.parse(testo);
+    if (!Array.isArray(parsed)) {
+      parsed = parsed.contatti || parsed.data || [parsed];
     }
-  } catch (err) {
-    showToast("Impossibile contattare il server", "error");
+    return { records: parsed, formato: "JSON" };
   }
+
+  const linee = testo.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (linee.length === 0) return { records: [], formato: "vuoto" };
+
+  const prima = linee[0];
+  let delim = null;
+  let formato = "TXT";
+  if (prima.includes("\t")) {
+    delim = "\t";
+    formato = "TSV / Excel";
+  } else if (prima.includes(";")) {
+    delim = ";";
+    formato = "CSV (;)";
+  } else if (prima.includes("|")) {
+    delim = "|";
+    formato = "TXT (|)";
+  } else if (prima.includes(",")) {
+    delim = ",";
+    formato = "CSV (,)";
+  }
+
+  if (delim) {
+    const righe = linee.map(l => l.split(delim).map(x => x.replace(/^"|"$/g, "").trim()));
+    const headerCandidate = righe[0].map(h => h.toLowerCase());
+    const hasHeader = headerCandidate.some(h =>
+      ["azienda", "ragione sociale", "negozio", "cliente", "nome", "telefono", "tel", "cellulare"].includes(h)
+    );
+
+    if (hasHeader) {
+      const headers = headerCandidate;
+      const records = righe.slice(1).map(row => {
+        const obj = {};
+        headers.forEach((h, i) => {
+          const val = row[i] || "";
+          if (["azienda", "ragione sociale", "negozio", "cliente", "nome"].includes(h)) obj.azienda = val;
+          else if (["telefono", "tel", "cellulare", "recapito", "numero"].includes(h)) obj.telefono = val;
+          else if (["referente", "titolare", "buyer", "contatto"].includes(h)) obj.referente = val;
+          else if (["citta", "città", "comune", "localita", "località"].includes(h)) obj.citta = val;
+          else if (["regione"].includes(h)) obj.regione = val;
+          else if (["priorita", "priorità", "urgenza"].includes(h)) obj.priorita = val;
+          else if (["importo", "ordine", "totale_ordini", "fatturato"].includes(h)) obj.totale_ordini = val;
+          else if (["note", "commenti", "appunti"].includes(h)) obj.note = val;
+        });
+        return obj;
+      });
+      return { records, formato };
+    }
+
+    return {
+      records: righe.map(parts => ({
+        azienda: parts[0] || "",
+        telefono: parts[1] || "",
+        citta: parts[2] || "",
+        note: parts.slice(3).join(" | ")
+      })),
+      formato
+    };
+  }
+
+  const records = linee.map(ln => {
+    const parti = ln.split(/\s+-\s+|\s*[;|]\s*/).map(p => p.trim()).filter(Boolean);
+    return {
+      azienda: parti[0] || "",
+      telefono: parti[1] || "",
+      citta: parti[2] || "",
+      note: parti.slice(3).join(" | ")
+    };
+  });
+  return { records, formato: "TXT" };
+}
+
+function importaListaRecordsLocale(records, formato = "Multi-formato") {
+  let inseriti = 0;
+  let duplicati = 0;
+  let errori = 0;
+  const adesso = getNowTimestampStr();
+
+  const telefoniEsistenti = new Set(
+    state.contatti.map(c => normalizzaTelefonoClient(c.telefono)).filter(Boolean)
+  );
+  let maxId = state.contatti.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0);
+
+  records.forEach(r => {
+    const azienda = String(r.azienda || r.ragione_sociale || r.negozio || r.nome || "").trim();
+    const telefono = String(r.telefono || r.tel || r.cellulare || "").trim();
+    const referente = String(r.referente || r.titolare || r.buyer || "").trim();
+    const citta = String(r.citta || r["città"] || r.comune || "").trim();
+    const regione = String(r.regione || "").trim() || deduciRegioneClient(citta);
+    const priorita = parsePrioritaClient(r.priorita || r["priorità"], 2);
+    const totOrdini = parseImportoClient(r.totale_ordini || r.importo || r.ordine);
+    const note = String(r.note || r.commenti || "").trim();
+
+    if (!azienda || !telefono) {
+      errori++;
+      return;
+    }
+    const telNorm = normalizzaTelefonoClient(telefono);
+    if (!telNorm) {
+      errori++;
+      return;
+    }
+    if (telefoniEsistenti.has(telNorm)) {
+      duplicati++;
+      return;
+    }
+
+    maxId++;
+    telefoniEsistenti.add(telNorm);
+    state.contatti.push(arricchisciContattoClient({
+      id: maxId,
+      azienda,
+      referente,
+      telefono,
+      citta,
+      regione,
+      priorita,
+      chiamato: totOrdini > 0 ? "Sì" : "No",
+      esito: totOrdini > 0 ? "Interessato (Ordine preso)" : "In attesa",
+      totale_ordini: totOrdini,
+      numero_ordini: totOrdini > 0 ? 1 : 0,
+      data_ricontatto: "",
+      motivo_ricontatto: "",
+      note,
+      data_aggiornamento: adesso,
+      ultimo_ordine: totOrdini > 0 ? adesso : "",
+      ordini_storico: totOrdini > 0
+        ? [{ id: Date.now() + maxId, contatto_id: maxId, importo: totOrdini, note_ordine: "Ordine importato", data_ordine: adesso }]
+        : []
+    }));
+    inseriti++;
+  });
+
+  ricalcolaTuttoInLocale();
+  renderAll();
+  return { inseriti, duplicati, errori, formato_rilevato: formato };
+}
+
+async function importaFileDefault() {
+  if (state.isApiAvailable) {
+    try {
+      const res = await fetchConTimeout(`${API_BASE}/api/importa-json`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ percorso_file: "contatti_lead.json" })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        mostraFeedbackImport(json);
+        await loadData();
+        return;
+      }
+    } catch (err) {
+      // Fallback locale
+    }
+  }
+
+  const leadDefault = [
+    { azienda: "Calzature Montenapoleone Srl", referente: "Dott. Matteo Villa", telefono: "02 33445566", citta: "Milano", priorita: 1, note: "Boutique storica quadrilatero" },
+    { azienda: "Boutique Piazza Navona", referente: "Chiara De Luca", telefono: "06 88776655", citta: "Roma", priorita: 1, note: "Interessata a linea cerimonia" },
+    { azienda: "Pelletteria & Scarpe Ponte Vecchio", referente: "Roberto Neri", telefono: "055 9988112", citta: "Firenze", priorita: 2, note: "Richiesto catalogo PDF" }
+  ];
+  const report = importaListaRecordsLocale(leadDefault, "JSON Integrato");
+  mostraFeedbackImport(report);
 }
 
 async function eseguiImportUniversale() {
@@ -2013,21 +2695,34 @@ async function eseguiImportUniversale() {
     return;
   }
 
-  try {
-    const res = await fetch(`${API_BASE}/api/importa`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contenuto_testo: testo })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      mostraFeedbackImport(json);
-      await loadData();
-    } else {
-      showToast(json.errore || "Errore durante l'importazione", "error");
+  if (state.isApiAvailable) {
+    try {
+      const res = await fetchConTimeout(`${API_BASE}/api/importa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contenuto_testo: testo })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        mostraFeedbackImport(json);
+        await loadData();
+        return;
+      }
+    } catch (err) {
+      // Fallback parser locale
     }
+  }
+
+  try {
+    const { records, formato } = parseTestoImportUniversaleClient(testo);
+    if (!records || records.length === 0) {
+      showToast("Nessun contatto valido rilevato nel testo", "error");
+      return;
+    }
+    const report = importaListaRecordsLocale(records, formato);
+    mostraFeedbackImport(report);
   } catch (err) {
-    showToast("Errore di connessione durante l'importazione", "error");
+    showToast("Formato dati non valido: verifica il testo incollato", "error");
   }
 }
 
@@ -2078,27 +2773,33 @@ function esportaFileCsv() {
   document.body.appendChild(a);
   a.click();
   a.remove();
+  showToast("Esportazione CSV completata", "success");
 }
 
 async function ripristinaDemoRicca() {
-  try {
-    const res = await fetch(`${API_BASE}/api/ripristina-demo`, { method: "POST" });
-    const json = await res.json();
-    if (json.ok) {
-      showToast("Dataset demo completo (ordini, ricontatti in calendario e duplicati) caricato", "success");
-      await loadData();
-      return;
+  if (state.isApiAvailable) {
+    try {
+      const res = await fetchConTimeout(`${API_BASE}/api/ripristina-demo`, { method: "POST" });
+      const json = await res.json();
+      if (json.ok) {
+        showToast("Dataset demo completo (ordini, ricontatti in calendario e duplicati) caricato", "success");
+        await loadData();
+        return;
+      }
+    } catch (err) {
+      // Fallback locale
     }
-  } catch (err) {
-    localStorage.removeItem("noga_crm_demo_contatti_v3");
-    caricaDatiDefaultLocali();
-    renderAll();
-    showToast("Dataset demo ripristinato in locale", "success");
   }
+
+  localStorage.removeItem(STORAGE_KEY_CONTATTI);
+  state.contatti = generaDatasetDemoCompleto();
+  ricalcolaTuttoInLocale();
+  renderAll();
+  showToast("Dataset demo completo (12 clienti, ordini, calendario e duplicati) caricato", "success");
 }
 
 // ==============================================================================
-// 5. NAVIGAZIONE TAB & EVENT LISTENERS
+// 6. NAVIGAZIONE TAB & EVENT LISTENERS
 // ==============================================================================
 
 function attivaTab(targetId) {
@@ -2147,10 +2848,9 @@ function setupEventListeners() {
 
   document.getElementById("btnRefresh").addEventListener("click", () => {
     loadData();
-    showToast("Sincronizzazione database e calendario completata", "success");
+    showToast("Dati e calendario aggiornati in tempo reale", "success");
   });
 
-  // Pulsanti Header e Top Announcement Bar
   document.getElementById("btnRipristinaDemo").addEventListener("click", ripristinaDemoRicca);
   document.getElementById("topBtnRipristinaDemo").addEventListener("click", ripristinaDemoRicca);
 
@@ -2163,7 +2863,6 @@ function setupEventListeners() {
   document.getElementById("btnEsportaCsv").addEventListener("click", esportaFileCsv);
   document.getElementById("topBtnEsportaCsv").addEventListener("click", esportaFileCsv);
 
-  // Navigazione Mese Calendario (< Mese Prec. | Vai a Oggi | Mese Succ. >)
   document.getElementById("btnCalPrevMonth").addEventListener("click", () => {
     state.calendarMonth--;
     if (state.calendarMonth < 0) {
@@ -2190,7 +2889,6 @@ function setupEventListeners() {
     impostaFiltroAgenda("giorno");
   });
 
-  // Filtri rapidi Agenda Operativa
   document.getElementById("btnAgendaFilterTutti").addEventListener("click", () => impostaFiltroAgenda("tutti"));
   document.getElementById("btnAgendaFilterOggiScaduti").addEventListener("click", () => impostaFiltroAgenda("oggi_scaduti"));
   document.getElementById("btnAgendaFilterGiorno").addEventListener("click", () => impostaFiltroAgenda("giorno"));
@@ -2202,7 +2900,6 @@ function setupEventListeners() {
   });
   document.getElementById("calPillFuturi").addEventListener("click", () => impostaFiltroAgenda("tutti"));
 
-  // Switch ordinamento grafico Top Clienti (Tab Ordini Confermati)
   document.getElementById("btnOrdiniSortEuro").addEventListener("click", () => {
     state.ordiniSortBy = "totale_ordini";
     document.getElementById("btnOrdiniSortEuro").classList.add("active");
@@ -2222,7 +2919,6 @@ function setupEventListeners() {
     document.getElementById("panelAnalisiTerritoriale").scrollIntoView({ behavior: "smooth" });
   });
 
-  // Switch grafico territoriale (Per Regione / Per Città)
   document.getElementById("btnGeoRegione").addEventListener("click", () => {
     state.territorioMode = "regioni";
     document.getElementById("btnGeoRegione").classList.add("active");
@@ -2237,7 +2933,6 @@ function setupEventListeners() {
     renderTerritorialChart();
   });
 
-  // Modale Nuovo / Modifica Contatto + Auto-deduzione Regione da Città
   document.getElementById("btnNuovoContatto").addEventListener("click", apriModalNuovo);
   document.getElementById("modalNuovoCloseBtn").addEventListener("click", () => chiudiModalNuovo(false));
   document.getElementById("btnAnnullaNuovo").addEventListener("click", () => chiudiModalNuovo(false));
@@ -2253,7 +2948,6 @@ function setupEventListeners() {
     }
   });
 
-  // Modale Registra Esito Chiamata + Pulsante Rapido Non Risponde + Slot 1-Click + Chip Note Rapide
   document.getElementById("modalEsitoCloseBtn").addEventListener("click", chiudiModalEsito);
   document.getElementById("btnAnnullaEsito").addEventListener("click", chiudiModalEsito);
   document.getElementById("selectEsito").addEventListener("change", aggiornaVisibilitaBoxOrdineEsito);
@@ -2265,16 +2959,14 @@ function setupEventListeners() {
   });
   document.getElementById("formRegistraEsito").addEventListener("submit", salvaEsitoChiamata);
 
-  // Modale Pianifica Ricontatto Rapido
   document.getElementById("modalPianificaCloseBtn").addEventListener("click", chiudiModalPianifica);
   document.getElementById("btnAnnullaPianifica").addEventListener("click", chiudiModalPianifica);
   document.getElementById("btnPianificaRimuovi").addEventListener("click", rimuoviRicontattoDaModalePianifica);
   document.getElementById("formPianificaRicontatto").addEventListener("submit", salvaFormPianifica);
 
-  // Slot Rapidi 1-Click (Condivisi tra Modale Esito e Modale Pianifica)
   document.querySelectorAll(".slot-btn").forEach(btn => {
     btn.addEventListener("click", () => {
-      const prefix = btn.dataset.targetPrefix; // 'esito' | 'pianifica'
+      const prefix = btn.dataset.targetPrefix;
       const slotKey = btn.dataset.quickSlot;
       const inputData = document.getElementById(prefix === "esito" ? "esitoInputDataRicontatto" : "pianificaInputData");
       const inputOra = document.getElementById(prefix === "esito" ? "esitoInputOraRicontatto" : "pianificaInputOra");
@@ -2307,12 +2999,10 @@ function setupEventListeners() {
     });
   });
 
-  // Modale + Nuovo Ordine (€)
   document.getElementById("modalNuovoOrdineCloseBtn").addEventListener("click", chiudiModalNuovoOrdine);
   document.getElementById("btnAnnullaNuovoOrdine").addEventListener("click", chiudiModalNuovoOrdine);
   document.getElementById("formNuovoOrdine").addEventListener("submit", salvaNuovoOrdine);
 
-  // Modale Importazione Universale + Drag & Drop
   document.getElementById("modalImportCloseBtn").addEventListener("click", chiudiModalImport);
   document.getElementById("btnAnnullaImport").addEventListener("click", chiudiModalImport);
   document.getElementById("btnCaricaFileJson").addEventListener("click", () => {
@@ -2340,12 +3030,10 @@ function setupEventListeners() {
   document.getElementById("btnImportaDefaultFile").addEventListener("click", importaFileDefault);
   document.getElementById("btnEseguiImportTesto").addEventListener("click", eseguiImportUniversale);
 
-  // Modale Conferma Eliminazione
   document.getElementById("modalEliminaCloseBtn").addEventListener("click", chiudiModalElimina);
   document.getElementById("btnAnnullaElimina").addEventListener("click", chiudiModalElimina);
   document.getElementById("btnConfermaElimina").addEventListener("click", confermaEliminazioneCliente);
 
-  // Slide-over Drawer
   document.getElementById("drawerCloseBtn").addEventListener("click", chiudiDrawer);
   document.getElementById("drawerBackdrop").addEventListener("click", chiudiDrawer);
 
@@ -2383,7 +3071,6 @@ function setupEventListeners() {
     richiediEliminazione(id);
   });
 
-  // Chiusura modali e drawer tramite tasto ESC (Accessibilità WCAG AA)
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       chiudiModalEsito();
@@ -2398,7 +3085,7 @@ function setupEventListeners() {
 }
 
 // ==============================================================================
-// 6. SISTEMA DI NOTIFICA TOAST
+// 7. SISTEMA DI NOTIFICA TOAST
 // ==============================================================================
 
 function showToast(message, type = "info") {

@@ -1,81 +1,67 @@
-# NOGA ROMA — Gestionale B2B & CRM Acquisizione Clienti all'Ingrosso (macOS Edition)
+# NOGA ROMA — Applicazione Desktop Nativa per macOS (`.app`)
 
-Piattaforma gestionale interna **100% locale e privata** progettata per **NOGA ROMA** per l'acquisizione di negozi e buyer all'ingrosso, la gestione degli ordini ricorrenti in Euro (€), la calendarizzazione in tempo reale dei ricontatti telefonici, l'analisi territoriale per Città/Regione e la bonifica automatica dei duplicati.
+Applicazione desktop **nativa per macOS** progettata per **NOGA ROMA** per l'acquisizione di negozi e buyer all'ingrosso, la gestione degli ordini ricorrenti in Euro (€), la calendarizzazione in tempo reale dei ricontatti telefonici, l'analisi territoriale per Città/Regione e la bonifica automatica dei duplicati.
 
-- **Zero Cloud / Totale Privacy**: Tutti i dati risiedono esclusivamente sul Mac in un database SQLite locale (`crm_ingrosso.db`). Il server ascolta solo in locale su `127.0.0.1:8080`.
-- **Zero Dipendenze Esterne**: Richiede unicamente Python 3 (già incluso in macOS) senza necessità di installare librerie tramite `pip` o `npm`.
-- **Applicazione Nativa macOS (`.app`)**: Include il generatore automatico del bundle **`NOGA Gestionale.app`** pronto da inserire nel **Dock** del Mac o nella cartella **Applicazioni**.
+- **Vera Applicazione Desktop Nativa macOS (`NSWindow` + `WKWebView`)**: Si apre nella **propria finestra nativa macOS** con barra menu dedicata (`Cmd+Q`, `Cmd+C`, `Cmd+V`), **NON apre Safari né schede del browser** e **non richiede alcun server esterno**.
+- **Zero Errori "Impossibile Raggiungere il Server"**: Il motore ibrido integrato carica l'applicazione direttamente dal bundle locale (`NOGA Gestionale.app`) e salva automaticamente tutti i dati sul Mac (`~/Library/Application Support/NOGA_Gestionale/` e persistenza locale nativa), funzionando su qualsiasi Mac anche senza Xcode o Python configurati.
+- **100% Locale & Privata**: Tutti i dati (contatti, storico ordini in €, calendario ricontatti, note) restano salvati esclusivamente sul tuo Mac.
 
 ---
 
-## Guida Completa di Installazione su macOS (Passo-Passo)
+## Guida Rapida di Installazione su Mac (1 Click)
 
-Segui questi passaggi per installare il gestionale sul Mac e aggiungerlo al **Dock**.
+### Passo 1 — Scarica o Aggiorna il Progetto sul tuo Mac
 
-### 1. Scarica il Progetto sul Mac
-
-Puoi scaricare il progetto in due modi:
-
-#### Opzione A — Tramite Terminale (`git clone`)
-Apri l'app **Terminale** su macOS (la trovi in `Applicazioni > Utility > Terminale` oppure premendo `Cmd + Spazio` e scrivendo `Terminale`) ed esegui:
+Se hai già scaricato la cartella sul Mac, aprila nel **Terminale** e aggiorna all'ultima versione:
 
 ```bash
-cd ~/Documents
-git clone https://github.com/Tiziano995/Noga_Gestionale.git
-cd Noga_Gestionale
+cd ~/Documents/Noga_Gestionale
+git pull
 ```
 
-#### Opzione B — Tramite File ZIP da GitHub
-1. Dalla pagina GitHub del repository clicca sul pulsante verde **`<> Code`** &rarr; **`Download ZIP`**.
-2. Estrai l'archivio ZIP e sposta la cartella **`Noga_Gestionale`** nella tua cartella **Documenti** (`~/Documents/Noga_Gestionale`).
-3. Apri il **Terminale** ed entra nella cartella:
-   ```bash
-   cd ~/Documents/Noga_Gestionale
-   ```
-
----
-
-### 2. Genera e Configura l'App Nativa per macOS (`NOGA Gestionale.app`)
-
-Dentro il Terminale, assicurati di trovarti nella cartella del progetto ed esegui questo comando:
-
-```bash
-python3 crea_app_mac.py
-```
-
-**Cosa fa automaticamente questo comando sul tuo Mac:**
-1. Crea (o aggiorna) il pacchetto applicativo nativo **`NOGA Gestionale.app`** completo di struttura Apple (`Contents/Info.plist`, `Contents/MacOS/NOGA_Launcher`, `Contents/Resources/app`).
-2. Imposta automaticamente i permessi di esecuzione (`chmod +x`) sugli script di avvio.
-3. Rimuove eventuali blocchi di sicurezza di macOS Gatekeeper (`xattr -cr "NOGA Gestionale.app"`) così l'app si apre subito al primo click senza avvisi.
-
----
-
-### 3. Metti l'App nel Dock del Mac e Avviala
-
-1. Apri il **Finder** nella cartella `Noga_Gestionale`.
-2. Troverai l'applicazione **`NOGA Gestionale`** (`NOGA Gestionale.app`).
-3. *(Opzionale)* Puoi trascinare **`NOGA Gestionale.app`** dentro la cartella **Applicazioni** (`/Applications`) del tuo Mac.
-4. Trascina **`NOGA Gestionale.app`** direttamente nella barra del **Dock** in basso sul tuo Mac per averla sempre a portata di click.
-5. **Fai doppio click su `NOGA Gestionale` (o cliccala dal Dock)**:
-   - Il sistema avvierà silenziosamente in background il motore SQLite locale su `127.0.0.1:8080`.
-   - Si aprirà automaticamente la finestra dedicata del gestionale **NOGA ROMA**.
-
----
-
-### Metodi di Avvio Alternativi su Mac
-
-Oltre all'icona **`NOGA Gestionale.app`** nel Dock, puoi avviare il gestionale anche in questi modi:
-
-- **Doppio click su `Avvia_NOGA_Mac.command`**: avvia il server in background e apre il gestionale nel browser.
-- **Avvio manuale da Terminale**:
+*(Oppure, se è la prima volta che lo scarichi)*:
+- **Tramite Terminale**:
   ```bash
-  python3 app_server.py
+  cd ~/Documents
+  git clone https://github.com/Tiziano995/Noga_Gestionale.git
+  cd Noga_Gestionale
   ```
-  e poi apri **`http://127.0.0.1:8080/index.html`** su Safari o Chrome.
+- **Oppure tramite ZIP da GitHub**: clicca sul pulsante verde **`<> Code`** &rarr; **`Download ZIP`**, estrai la cartella **`Noga_Gestionale`** e aprila nel Finder.
 
 ---
 
-## Funzionalità Principali Incluse
+### Passo 2 — Installa l'App sul Mac in 1 Click
+
+Hai due modi semplicissimi per installare **`NOGA Gestionale.app`** nella cartella **Applicazioni** (`/Applications`) e sulla **Scrivania** (`Desktop`) del tuo Mac:
+
+#### Metodo A — Da Terminale (Consigliato, zero avvisi di sicurezza)
+Copia e incolla questa riga nel **Terminale** (dentro la cartella `Noga_Gestionale`):
+
+```bash
+bash Installa_NOGA_Mac.command
+```
+
+#### Metodo B — Dal Finder con Doppio Click
+1. Apri la cartella `Noga_Gestionale` nel **Finder**.
+2. Fai **doppio click** su **`Installa_NOGA_Mac.command`** (oppure tasto destro &rarr; **Apri**).
+
+**Cosa fa automaticamente l'installatore:**
+1. Sblocca automaticamente i permessi di sicurezza di macOS Gatekeeper (`xattr -cr`).
+2. Compila la finestra nativa macOS (`Cocoa` + `WebKit`).
+3. Installa **`NOGA Gestionale.app`** nella cartella **Applicazioni** (`/Applications`) e ne crea una copia pronta all'uso anche sulla tua **Scrivania (Desktop)**.
+4. Avvia immediatamente l'applicazione desktop nativa **NOGA Gestionale**!
+
+---
+
+### Passo 3 — Usa l'App dal Dock o da Applicazioni come qualsiasi App Mac
+
+1. Ora trovi **`NOGA Gestionale`** direttamente nella cartella **Applicazioni** (e sulla **Scrivania**).
+2. Trascina l'icona **`NOGA Gestionale`** nella barra del **Dock** in basso sul tuo Mac.
+3. Ogni volta che clicchi su **`NOGA Gestionale`**, si aprirà istantaneamente la **finestra desktop nativa macOS** del gestionale (senza passare per Safari e senza alcun bisogno di avviare server manuali).
+
+---
+
+## Funzionalità Complete Incluse nell'App
 
 | Sezione | Descrizione Operativa |
 | :--- | :--- |
@@ -90,18 +76,19 @@ Oltre all'icona **`NOGA Gestionale.app`** nel Dock, puoi avviare il gestionale a
 
 ---
 
-## Struttura dei File del Repository
+## Struttura del Progetto
 
 ```text
 Noga_Gestionale/
-├── NOGA Gestionale.app/       # Applicazione nativa macOS pronta per il Dock
-├── Avvia_NOGA_Mac.command     # Script rapido avviabile con doppio click su Mac
-├── crea_app_mac.py            # Generatore/aggiornatore del bundle .app per macOS
-├── app_server.py              # Server HTTP REST multithread privato (127.0.0.1:8080)
+├── NOGA Gestionale.app/       # Vera Applicazione Desktop Nativa macOS (Cocoa + WebKit)
+├── Installa_NOGA_Mac.command  # Installer automatico 1-click (installa in /Applications e Desktop)
+├── Avvia_NOGA_Mac.command     # Avvio rapido diretto dell'app nativa
+├── crea_app_mac.py            # Generatore del bundle nativo .app per macOS
+├── app_server.py              # Servizio SQLite locale opzionale
 ├── main.py                    # Core SQLite, migrazioni schema, ordini, calendario e duplicati
-├── index.html                 # Interfaccia Web App NOGA ROMA a 6 viste
+├── index.html                 # Interfaccia NOGA ROMA a 6 viste
 ├── style.css                  # Design System NOGA ROMA (Geist & Geist Mono, zero immagini)
-├── app.js                     # Logica frontend reattiva in tempo reale
+├── app.js                     # Motore ibrido autonomo in tempo reale
 ├── crm_ingrosso.db            # Database SQLite locale
-└── CHANGELOG.md               # Registro tracciabilità modifiche e quality gates
+└── CHANGELOG.md               # Registro tracciabilità modifiche
 ```

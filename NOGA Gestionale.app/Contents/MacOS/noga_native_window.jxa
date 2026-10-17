@@ -1,0 +1,96 @@
+ObjC.import('Cocoa');
+ObjC.import('WebKit');
+
+function run(argv) {
+    var htmlPath = argv.length > 0 ? argv[0] : "";
+
+    var app = $.NSApplication.sharedApplication;
+    app.setActivationPolicy($.NSApplicationActivationPolicyRegular);
+
+    // Barra Menu Nativa macOS (Cmd+Q, Cmd+C, Cmd+V, Cmd+X, Cmd+A)
+    var menubar = $.NSMenu.alloc.init;
+    var appMenuItem = $.NSMenuItem.alloc.init;
+    menubar.addItem(appMenuItem);
+    app.setMainMenu(menubar);
+
+    var appMenu = $.NSMenu.alloc.initWithTitle($("NOGA Gestionale"));
+    var quitItem = $.NSMenuItem.alloc.initWithTitleActionKeyEquivalent(
+        $("Esci da NOGA Gestionale"),
+        "terminate:",
+        $("q")
+    );
+    appMenu.addItem(quitItem);
+    appMenuItem.setSubmenu(appMenu);
+
+    var editMenuItem = $.NSMenuItem.alloc.init;
+    menubar.addItem(editMenuItem);
+    var editMenu = $.NSMenu.alloc.initWithTitle($("Modifica"));
+    editMenu.addItemWithTitleActionKeyEquivalent($("Taglia"), "cut:", $("x"));
+    editMenu.addItemWithTitleActionKeyEquivalent($("Copia"), "copy:", $("c"));
+    editMenu.addItemWithTitleActionKeyEquivalent($("Incolla"), "paste:", $("v"));
+    editMenu.addItemWithTitleActionKeyEquivalent($("Seleziona tutto"), "selectAll:", $("a"));
+    editMenuItem.setSubmenu(editMenu);
+
+    var screenFrame = $.NSScreen.mainScreen.visibleFrame;
+    var width = Math.min(1480, screenFrame.size.width * 0.94);
+    var height = Math.min(920, screenFrame.size.height * 0.92);
+    var rect = $.NSMakeRect(
+        screenFrame.origin.x + (screenFrame.size.width - width) / 2,
+        screenFrame.origin.y + (screenFrame.size.height - height) / 2,
+        width,
+        height
+    );
+
+    var styleMask = $.NSWindowStyleMaskTitled |
+                    $.NSWindowStyleMaskClosable |
+                    $.NSWindowStyleMaskMiniaturizable |
+                    $.NSWindowStyleMaskResizable;
+
+    var window = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer(
+        rect,
+        styleMask,
+        $.NSBackingStoreBuffered,
+        false
+    );
+    window.setTitle($("NOGA ROMA — Gestionale Acquisizione Clienti B2B"));
+    window.setMinSize($.NSMakeSize(1024, 680));
+    window.setReleasedWhenClosed(false);
+
+    var config = $.WKWebViewConfiguration.alloc.init;
+    // Garantisce che window.confirm funzioni anche senza WKUIDelegate in JXA
+    var confirmScript = $.WKUserScript.alloc.initWithSourceInjectionTimeForMainFrameOnly(
+        $("window.confirm = function(msg) { return true; };"),
+        $.WKUserScriptInjectionTimeAtDocumentStart,
+        false
+    );
+    config.userContentController.addUserScript(confirmScript);
+
+    var webView = $.WKWebView.alloc.initWithFrameConfiguration(
+        window.contentView.bounds,
+        config
+    );
+    webView.setAutoresizingMask($.NSViewWidthSizable | $.NSViewHeightSizable);
+    window.contentView.addSubview(webView);
+
+    var fileURL = $.NSURL.fileURLWithPath($(htmlPath));
+    var dirURL = fileURL.URLByDeletingLastPathComponent;
+    webView.loadFileURLAllowingReadAccessToURL(fileURL, dirURL);
+
+    window.makeKeyAndOrderFront(null);
+    app.activateIgnoringOtherApps(true);
+
+    // Loop eventi nativo Cocoa finché la finestra resta aperta
+    var distantFuture = $.NSDate.distantFuture;
+    while (window.isVisible) {
+        var event = app.nextEventMatchingMaskUntilDateInModeDequeue(
+            $.NSEventMaskAny,
+            distantFuture,
+            $.NSDefaultRunLoopMode,
+            true
+        );
+        if (event) {
+            app.sendEvent(event);
+            app.updateWindows;
+        }
+    }
+}

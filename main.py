@@ -3,12 +3,45 @@ import io
 import json
 import os
 import re
+import shutil
 import sqlite3
+import sys
 from datetime import datetime, timedelta
 
 # Percorso assoluto della cartella di progetto (fondamentale per esecuzione da bundle .app macOS / Dock)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-NOME_DB = os.path.join(BASE_DIR, "crm_ingrosso.db")
+
+
+def _risolvi_percorso_db():
+    """Ritorna un percorso SQLite scrivibile, supportando l'installazione macOS in /Applications."""
+    env_db = os.environ.get("NOGA_DB_PATH", "").strip()
+    if env_db:
+        cartella_env = os.path.dirname(env_db)
+        if cartella_env:
+            os.makedirs(cartella_env, exist_ok=True)
+        db_bundle = os.path.join(BASE_DIR, "crm_ingrosso.db")
+        if not os.path.exists(env_db) and os.path.exists(db_bundle):
+            try:
+                shutil.copy2(db_bundle, env_db)
+            except OSError:
+                pass
+        return env_db
+
+    db_locale = os.path.join(BASE_DIR, "crm_ingrosso.db")
+    if sys.platform == "darwin" and not os.access(BASE_DIR, os.W_OK):
+        support_dir = os.path.expanduser("~/Library/Application Support/NOGA_Gestionale")
+        os.makedirs(support_dir, exist_ok=True)
+        db_utente = os.path.join(support_dir, "crm_ingrosso.db")
+        if not os.path.exists(db_utente) and os.path.exists(db_locale):
+            try:
+                shutil.copy2(db_locale, db_utente)
+            except OSError:
+                pass
+        return db_utente
+    return db_locale
+
+
+NOME_DB = _risolvi_percorso_db()
 
 # ==============================================================================
 # 0. DOMINIO PURO: MAPPATURA GEOGRAFICA, NORMALIZZAZIONE E STATO RICONTATTI

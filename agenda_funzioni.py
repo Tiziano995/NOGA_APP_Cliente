@@ -4,13 +4,13 @@ import json
 import os
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Nome del file database SQLite locale
 NOME_DB = "crm_ingrosso.db"
 
 # ==============================================================================
-# 0. DOMINIO PURO: MAPPATURA GEOGRAFICA E NORMALIZZAZIONE (ZERO I/O)
+# 0. DOMINIO PURO: MAPPATURA GEOGRAFICA, NORMALIZZAZIONE E STATO RICONTATTI
 # ==============================================================================
 
 MAPPA_CITTA_REGIONE = {
@@ -136,7 +136,6 @@ def deduci_regione(citta):
     if not testo:
         return ""
 
-    # Se la stringa contiene parentesi o separatori es. "Milano (Lombardia)" o "Roma - Lazio"
     parti = re.split(r"[\(\)\-\/,;]+", testo)
     for p in parti:
         p_clean = p.strip()
@@ -145,7 +144,6 @@ def deduci_regione(citta):
         if p_clean in REGIONI_ITALIANE_UFFICIALI:
             return REGIONI_ITALIANE_UFFICIALI[p_clean]
 
-    # Ricerca per corrispondenza parziale di parola
     for chiave_citta, regione in MAPPA_CITTA_REGIONE.items():
         if re.search(r"\b" + re.escape(chiave_citta) + r"\b", testo):
             return regione
@@ -161,14 +159,11 @@ def normalizza_telefono(tel):
     if not tel:
         return ""
     s = str(tel).strip()
-    # Rimuove caratteri di formattazione comuni
     s = re.sub(r"[\s\.\-\/\(\)]+", "", s)
-    # Rimuove prefisso internazionale +39 o 0039
     if s.startswith("+39"):
         s = s[3:]
     elif s.startswith("0039"):
         s = s[4:]
-    # Mantiene solo cifre e eventuale + per numeri esteri non italiani
     s = re.sub(r"[^\d+]", "", s)
     return s
 
@@ -181,15 +176,36 @@ def normalizza_azienda(nome):
     if not nome:
         return ""
     s = str(nome).lower().strip()
-    # Rimuove le forme giuridiche con punteggiatura opzionale
     s = re.sub(
         r"\b(s\.?\s*r\.?\s*l\.?\s*s\.?|s\.?\s*r\.?\s*l\.?|s\.?\s*p\.?\s*a\.?|s\.?\s*n\.?\s*c\.?|s\.?\s*a\.?\s*s\.?|s\.?\s*c\.?\s*a\.?\s*r\.?\s*l\.?|unipersonale|ditta\s+individuale)\b",
         "",
         s,
     )
-    # Rimuove qualsiasi punteggiatura e spazio residuo
     s = re.sub(r"[^a-z0-9àèéìòù]", "", s)
     return s
+
+
+def calcola_stato_ricontatto(data_ricontatto, adesso_str=None):
+    """
+    Calcola lo stato temporale dinamico di un appuntamento:
+    - 'scaduto' se data_ricontatto < adesso
+    - 'oggi' se data_ricontatto cade nella data odierna (>= adesso)
+    - 'futuro' se data_ricontatto è nei giorni successivi
+    - '' se non è impostato alcun ricontatto
+    """
+    dt_clean = str(data_ricontatto or "").strip()
+    if not dt_clean:
+        return ""
+    now_s = adesso_str or datetime.now().strftime("%Y-%m-%d %H:%M")
+    oggi_s = now_s[:10]
+    # Normalizza se mancava l'orario
+    if len(dt_clean) == 10:
+        dt_clean = dt_clean + " 09:00"
+    if dt_clean < now_s:
+        return "scaduto"
+    if dt_clean[:10] == oggi_s:
+        return "oggi"
+    return "futuro"
 
 
 def _parse_priorita(valore, default=2):
@@ -218,7 +234,6 @@ def _parse_importo(valore, default=0.0):
     s = re.sub(r"[€$£\sA-Za-z]", "", s)
     if not s:
         return default
-    # Gestisce formato italiano 1.250,50 vs formato inglese 1,250.50 o 1250,50
     if "," in s and "." in s:
         if s.rfind(",") > s.rfind("."):
             s = s.replace(".", "").replace(",", ".")
@@ -230,6 +245,18 @@ def _parse_importo(valore, default=0.0):
         return round(float(s), 2)
     except ValueError:
         return default
+
+
+def _normalizza_data_ricontatto(valore):
+    """Normalizza una stringa data/ora nel formato ISO '%Y-%m-%d %H:%M'."""
+    if not valore:
+        return ""
+    s = str(valore).strip().replace("T", " ")
+    if not s:
+        return ""
+    if len(s) == 10 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return f"{s} 09:00"
+    return s[:16]
 
 
 # ==============================================================================
@@ -248,7 +275,8 @@ def crea_tabella():
     """
     Crea e aggiorna lo schema del database:
     1. Tabella `contatti_ingrosso` con migrazione dinamica automatica via PRAGMA table_info
-       per le colonne: referente, regione, priorita, totale_ordini, numero_ordini.
+       per le colonne: referente, regione, priorita, totale_ordini, numero_ordini,
+       data_ricontatto, motivo_ricontatto.
     2. Tabella `storico_ordini` con chiave esterna ON DELETE CASCADE.
     """
     try:
@@ -268,11 +296,12 @@ def crea_tabella():
                 regione TEXT DEFAULT '',
                 priorita INTEGER DEFAULT 2,
                 totale_ordini REAL DEFAULT 0.0,
-                numero_ordini INTEGER DEFAULT 0
+                numero_ordini INTEGER DEFAULT 0,
+                data_ricontatto TEXT DEFAULT '',
+                motivo_ricontatto TEXT DEFAULT ''
             )
         """)
 
-        # Migrazione dinamica per database esistenti
         cur.execute("PRAGMA table_info(contatti_ingrosso)")
         colonne_esistenti = {row["name"] for row in cur.fetchall()}
 
@@ -282,12 +311,13 @@ def crea_tabella():
             ("priorita", "INTEGER DEFAULT 2"),
             ("totale_ordini", "REAL DEFAULT 0.0"),
             ("numero_ordini", "INTEGER DEFAULT 0"),
+            ("data_ricontatto", "TEXT DEFAULT ''"),
+            ("motivo_ricontatto", "TEXT DEFAULT ''"),
         ]
         for nome_col, definizione in nuove_colonne:
             if nome_col not in colonne_esistenti:
                 cur.execute(f"ALTER TABLE contatti_ingrosso ADD COLUMN {nome_col} {definizione}")
 
-        # Tabella storico_ordini
         cur.execute("""
             CREATE TABLE IF NOT EXISTS storico_ordini (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -299,14 +329,15 @@ def crea_tabella():
             )
         """)
 
-        # Allinea eventuali valori NULL e deduce la regione per i contatti già presenti senza regione
         cur.execute("""
             UPDATE contatti_ingrosso
             SET referente = COALESCE(referente, ''),
                 regione = COALESCE(regione, ''),
                 priorita = COALESCE(priorita, 2),
                 totale_ordini = COALESCE(totale_ordini, 0.0),
-                numero_ordini = COALESCE(numero_ordini, 0)
+                numero_ordini = COALESCE(numero_ordini, 0),
+                data_ricontatto = COALESCE(data_ricontatto, ''),
+                motivo_ricontatto = COALESCE(motivo_ricontatto, '')
         """)
 
         cur.execute("SELECT id, citta, regione FROM contatti_ingrosso WHERE (regione IS NULL OR regione = '') AND citta != ''")
@@ -324,8 +355,8 @@ def crea_tabella():
         return False
 
 
-def _riga_a_dict(r):
-    """Converte un sqlite3.Row di contatti_ingrosso in dizionario completo e retrocompatibile."""
+def _riga_a_dict(r, adesso_str=None):
+    """Converte un sqlite3.Row di contatti_ingrosso in dizionario completo con stato ricontatto."""
     if r is None:
         return None
     chiavi = r.keys()
@@ -333,6 +364,8 @@ def _riga_a_dict(r):
     regione = r["regione"] if "regione" in chiavi and r["regione"] else ""
     if not regione and citta:
         regione = deduci_regione(citta)
+    data_ric = r["data_ricontatto"] if "data_ricontatto" in chiavi and r["data_ricontatto"] else ""
+    motivo_ric = r["motivo_ricontatto"] if "motivo_ricontatto" in chiavi and r["motivo_ricontatto"] else ""
     return {
         "id": r["id"],
         "azienda": r["azienda"],
@@ -346,6 +379,9 @@ def _riga_a_dict(r):
         "priorita": int(r["priorita"]) if "priorita" in chiavi and r["priorita"] in (1, 2, 3) else 2,
         "totale_ordini": round(float(r["totale_ordini"] or 0.0), 2) if "totale_ordini" in chiavi else 0.0,
         "numero_ordini": int(r["numero_ordini"] or 0) if "numero_ordini" in chiavi else 0,
+        "data_ricontatto": data_ric,
+        "motivo_ricontatto": motivo_ric,
+        "stato_ricontatto": calcola_stato_ricontatto(data_ric, adesso_str=adesso_str),
         "data_aggiornamento": r["data_aggiornamento"] if "data_aggiornamento" in chiavi and r["data_aggiornamento"] else "",
         "ultimo_ordine": r["ultimo_ordine"] if "ultimo_ordine" in chiavi and r["ultimo_ordine"] else (r["data_aggiornamento"] if "data_aggiornamento" in chiavi else ""),
     }
@@ -386,6 +422,8 @@ def aggiungi_contatto(
     regione="",
     priorita=2,
     totale_ordini=0.0,
+    data_ricontatto="",
+    motivo_ricontatto="",
 ):
     """Aggiunge un nuovo potenziale acquirente da contattare (retrocompatibile)."""
     try:
@@ -399,18 +437,26 @@ def aggiungi_contatto(
         referente_clean = str(referente or "").strip()
         priorita_val = _parse_priorita(priorita, default=2)
         importo_iniziale = _parse_importo(totale_ordini, default=0.0)
+        data_ric_clean = _normalizza_data_ricontatto(data_ricontatto)
+        motivo_ric_clean = str(motivo_ricontatto or "").strip()
 
         chiamato_init = "Sì" if importo_iniziale > 0 else "No"
-        esito_init = "Interessato (Ordine preso)" if importo_iniziale > 0 else "In attesa"
+        if importo_iniziale > 0:
+            esito_init = "Interessato (Ordine preso)"
+        elif data_ric_clean:
+            esito_init = "Da richiamare"
+        else:
+            esito_init = "In attesa"
         num_ordini_init = 1 if importo_iniziale > 0 else 0
 
         cur.execute(
             """
             INSERT INTO contatti_ingrosso (
                 azienda, referente, telefono, citta, regione, note,
-                chiamato, esito, priorita, totale_ordini, numero_ordini, data_aggiornamento
+                chiamato, esito, priorita, totale_ordini, numero_ordini,
+                data_ricontatto, motivo_ricontatto, data_aggiornamento
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(azienda).strip(),
@@ -424,6 +470,8 @@ def aggiungi_contatto(
                 priorita_val,
                 importo_iniziale,
                 num_ordini_init,
+                data_ric_clean,
+                motivo_ric_clean,
                 data_ora,
             ),
         )
@@ -454,7 +502,7 @@ def ottieni_tutti_contatti():
         cur.execute("""
             SELECT c.id, c.azienda, c.referente, c.telefono, c.citta, c.regione, c.note,
                    c.chiamato, c.esito, c.priorita, c.totale_ordini, c.numero_ordini,
-                   c.data_aggiornamento,
+                   c.data_ricontatto, c.motivo_ricontatto, c.data_aggiornamento,
                    (SELECT MAX(s.data_ordine) FROM storico_ordini s WHERE s.contatto_id = c.id) AS ultimo_ordine
             FROM contatti_ingrosso c
             ORDER BY c.priorita ASC, c.id ASC
@@ -469,21 +517,36 @@ def ottieni_tutti_contatti():
 
 def ottieni_contatti_da_chiamare():
     """
-    Filtra e restituisce solo i contatti ancora da chiamare
-    (chiamato = 'No' o esito = 'Da richiamare'), ordinati per priorita ASC, id ASC.
+    Filtra e restituisce i contatti da chiamare (chiamato = 'No', esito = 'Da richiamare'
+    o ricontatto programmato), dando precedenza assoluta agli appuntamenti scaduti o fissati
+    per oggi, poi per priorità (1 = Alta, 2 = Normale, 3 = Bassa), poi per id ASC.
     """
     try:
         conn = connetti()
         cur = conn.cursor()
+        oggi_fine = datetime.now().strftime("%Y-%m-%d 23:59")
         cur.execute("""
             SELECT c.id, c.azienda, c.referente, c.telefono, c.citta, c.regione, c.note,
                    c.chiamato, c.esito, c.priorita, c.totale_ordini, c.numero_ordini,
-                   c.data_aggiornamento,
+                   c.data_ricontatto, c.motivo_ricontatto, c.data_aggiornamento,
                    (SELECT MAX(s.data_ordine) FROM storico_ordini s WHERE s.contatto_id = c.id) AS ultimo_ordine
             FROM contatti_ingrosso c
-            WHERE c.chiamato = 'No' OR c.esito = 'Da richiamare'
-            ORDER BY c.priorita ASC, c.id ASC
-        """)
+            WHERE c.chiamato = 'No'
+               OR c.esito = 'Da richiamare'
+               OR (c.data_ricontatto IS NOT NULL AND TRIM(c.data_ricontatto) != '')
+            ORDER BY
+                CASE
+                    WHEN c.data_ricontatto IS NOT NULL AND TRIM(c.data_ricontatto) != '' AND c.data_ricontatto <= ? THEN 0
+                    WHEN c.data_ricontatto IS NOT NULL AND TRIM(c.data_ricontatto) != '' THEN 1
+                    ELSE 2
+                END ASC,
+                CASE
+                    WHEN c.data_ricontatto IS NOT NULL AND TRIM(c.data_ricontatto) != '' THEN c.data_ricontatto
+                    ELSE '9999-99-99 99:99'
+                END ASC,
+                c.priorita ASC,
+                c.id ASC
+        """, (oggi_fine,))
         righe = cur.fetchall()
         conn.close()
         return righe
@@ -492,10 +555,125 @@ def ottieni_contatti_da_chiamare():
         return []
 
 
+def ottieni_appuntamenti_calendario(mese=None, anno=None, data_specifica=None):
+    """
+    Restituisce tutti i contatti che hanno data_ricontatto != '', ordinati per
+    data_ricontatto ASC, priorita ASC, con stato temporale dinamico ('scaduto', 'oggi', 'futuro').
+    """
+    try:
+        conn = connetti()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT c.id, c.azienda, c.referente, c.telefono, c.citta, c.regione, c.note,
+                   c.chiamato, c.esito, c.priorita, c.totale_ordini, c.numero_ordini,
+                   c.data_ricontatto, c.motivo_ricontatto, c.data_aggiornamento,
+                   (SELECT MAX(s.data_ordine) FROM storico_ordini s WHERE s.contatto_id = c.id) AS ultimo_ordine
+            FROM contatti_ingrosso c
+            WHERE c.data_ricontatto IS NOT NULL AND TRIM(c.data_ricontatto) != ''
+            ORDER BY c.data_ricontatto ASC, c.priorita ASC, c.id ASC
+        """)
+        righe = cur.fetchall()
+        conn.close()
+
+        adesso_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        appuntamenti = []
+
+        filtro_prefisso = None
+        if data_specifica:
+            filtro_prefisso = str(data_specifica).strip()[:10]
+        elif mese and anno:
+            filtro_prefisso = f"{int(anno):04d}-{int(mese):02d}"
+        elif mese and isinstance(mese, str) and len(mese.strip()) == 7:
+            filtro_prefisso = mese.strip()
+
+        for r in righe:
+            d = _riga_a_dict(r, adesso_str=adesso_str)
+            if filtro_prefisso and not d["data_ricontatto"].startswith(filtro_prefisso):
+                continue
+            appuntamenti.append(d)
+
+        return appuntamenti
+    except sqlite3.Error as e:
+        print(f"Errore database in ottieni_appuntamenti_calendario: {e}")
+        return []
+
+
+def pianifica_ricontatto(contatto_id, data_ricontatto, motivo_ricontatto="", priorita=None, nota_extra=""):
+    """
+    Fissa, sposta o cancella (data_ricontatto = '') un appuntamento di ricontatto in tempo reale.
+    Se viene fissata una data, imposta esito = 'Da richiamare' (salvo ordine già preso con follow-up)
+    e accoda una traccia nello storico note con separatore '|'.
+    """
+    try:
+        conn = connetti()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM contatti_ingrosso WHERE id = ?", (contatto_id,))
+        record = cur.fetchone()
+        if not record:
+            conn.close()
+            return False
+
+        data_ora = datetime.now().strftime("%Y-%m-%d %H:%M")
+        data_ric_clean = _normalizza_data_ricontatto(data_ricontatto)
+        motivo_clean = str(motivo_ricontatto or "").strip()
+        nota_extra_clean = str(nota_extra or "").strip()
+
+        nuova_priorita = record["priorita"] if record["priorita"] in (1, 2, 3) else 2
+        if priorita is not None:
+            nuova_priorita = _parse_priorita(priorita, default=nuova_priorita)
+
+        if data_ric_clean:
+            if not motivo_clean:
+                motivo_clean = "Appuntamento concordato"
+            nuovo_esito = (
+                "Interessato (Ordine preso)"
+                if record["esito"] == "Interessato (Ordine preso)"
+                else "Da richiamare"
+            )
+            suffisso = f" - {nota_extra_clean}" if nota_extra_clean else ""
+            traccia = f"[{data_ora}] RICONTATTO PROGRAMMATO PER {data_ric_clean} ({motivo_clean}){suffisso}"
+            note_aggiornate = _accoda_nota_sql(record["note"], traccia)
+        else:
+            motivo_clean = ""
+            nuovo_esito = record["esito"] or "In attesa"
+            if nota_extra_clean:
+                traccia = f"[{data_ora}] RICONTATTO COMPLETATO: {nota_extra_clean}"
+                note_aggiornate = _accoda_nota_sql(record["note"], traccia)
+            else:
+                note_aggiornate = record["note"] or ""
+
+        cur.execute(
+            """
+            UPDATE contatti_ingrosso
+            SET data_ricontatto = ?,
+                motivo_ricontatto = ?,
+                esito = ?,
+                priorita = ?,
+                note = ?,
+                data_aggiornamento = ?
+            WHERE id = ?
+            """,
+            (
+                data_ric_clean,
+                motivo_clean,
+                nuovo_esito,
+                nuova_priorita,
+                note_aggiornate,
+                data_ora,
+                contatto_id,
+            ),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        print(f"Errore database in pianifica_ricontatto: {e}")
+        return False
+
+
 def ottieni_ordini_confermati(ordina_per="priorita"):
     """
     Restituisce i clienti con ordini confermati (esito = 'Interessato (Ordine preso)' o totale_ordini > 0).
-    Supporta ordinamento per 'priorita' (priorita ASC, id ASC), 'totale_ordini' (DESC), 'numero_ordini' (DESC).
     """
     try:
         conn = connetti()
@@ -510,7 +688,7 @@ def ottieni_ordini_confermati(ordina_per="priorita"):
         cur.execute(f"""
             SELECT c.id, c.azienda, c.referente, c.telefono, c.citta, c.regione, c.note,
                    c.chiamato, c.esito, c.priorita, c.totale_ordini, c.numero_ordini,
-                   c.data_aggiornamento,
+                   c.data_ricontatto, c.motivo_ricontatto, c.data_aggiornamento,
                    COALESCE(
                        (SELECT MAX(s.data_ordine) FROM storico_ordini s WHERE s.contatto_id = c.id),
                        c.data_aggiornamento
@@ -528,7 +706,7 @@ def ottieni_ordini_confermati(ordina_per="priorita"):
 
 
 def cerca_contatti(termine):
-    """Cerca contatti per nome azienda, referente, telefono, città, regione o note."""
+    """Cerca contatti per nome azienda, referente, telefono, città, regione, motivo ricontatto o note."""
     try:
         conn = connetti()
         cur = conn.cursor()
@@ -536,7 +714,7 @@ def cerca_contatti(termine):
         cur.execute("""
             SELECT c.id, c.azienda, c.referente, c.telefono, c.citta, c.regione, c.note,
                    c.chiamato, c.esito, c.priorita, c.totale_ordini, c.numero_ordini,
-                   c.data_aggiornamento,
+                   c.data_ricontatto, c.motivo_ricontatto, c.data_aggiornamento,
                    (SELECT MAX(s.data_ordine) FROM storico_ordini s WHERE s.contatto_id = c.id) AS ultimo_ordine
             FROM contatti_ingrosso c
             WHERE c.azienda LIKE ?
@@ -545,8 +723,9 @@ def cerca_contatti(termine):
                OR c.citta LIKE ?
                OR c.regione LIKE ?
                OR c.note LIKE ?
+               OR c.motivo_ricontatto LIKE ?
             ORDER BY c.priorita ASC, c.id ASC
-        """, (query, query, query, query, query, query))
+        """, (query, query, query, query, query, query, query))
         righe = cur.fetchall()
         conn.close()
         return righe
@@ -604,16 +783,16 @@ def registra_esito_chiamata(
     importo_ordine=0.0,
     referente=None,
     priorita=None,
+    data_ricontatto=None,
+    motivo_ricontatto=None,
 ):
     """
-    Aggiorna lo stato della telefonata e gestisce eventuale ordine confermato:
-    - chiamato: 'Sì' o 'No'
-    - esito: 'Interessato (Ordine preso)', 'Non interessato (Rifiutato)', 'Da richiamare', 'In attesa'
-    - nuove_note: note addizionali scaturite dalla chiamata
-    - importo_ordine: float opzionale (in €). Se esito = 'Interessato (Ordine preso)' e importo_ordine > 0:
-      inserisce in storico_ordini, ricalcola totale_ordini e numero_ordini, e formatta la nota ordine.
-    - referente: stringa opzionale per aggiornare il referente del contatto
-    - priorita: intero opzionale (1, 2, 3) per aggiornare la priorità
+    Aggiorna lo stato della telefonata, gestisce eventuale ordine confermato in €
+    e sincronizza la calendarizzazione del ricontatto:
+    - Caso 1: Se viene impostata una data_ricontatto, forza esito = 'Da richiamare'
+      (a meno che non sia già 'Interessato (Ordine preso)' con follow-up), salva data_ricontatto
+      e motivo_ricontatto e accoda: [TIMESTAMP] RICONTATTO PROGRAMMATO PER {data} ({motivo}) - {note}
+    - Caso 2: Se non viene indicata una nuova data_ricontatto, svuota data_ricontatto = '' e motivo_ricontatto = ''.
     """
     try:
         conn = connetti()
@@ -627,14 +806,36 @@ def registra_esito_chiamata(
         data_ora = datetime.now().strftime("%Y-%m-%d %H:%M")
         importo_val = _parse_importo(importo_ordine, default=0.0)
         note_input = str(nuove_note or "").strip()
+        data_ric_clean = _normalizza_data_ricontatto(data_ricontatto)
+        motivo_ric_clean = str(motivo_ricontatto or "").strip()
 
-        # Costruzione nota da accodare
-        if esito == "Interessato (Ordine preso)" and importo_val > 0:
-            suffisso_nota = f" - {note_input}" if note_input else ""
-            nota_formattata = f"[{data_ora}] ORDINE CONFERMATO: € {importo_val:.2f}{suffisso_nota}"
-            nota_finale = _accoda_nota_sql(record["note"], nota_formattata)
+        esito_finale = esito
+        if data_ric_clean:
+            if not motivo_ric_clean:
+                motivo_ric_clean = "Appuntamento concordato"
+            if esito_finale != "Interessato (Ordine preso)":
+                esito_finale = "Da richiamare"
         else:
-            nota_finale = _accoda_nota_sql(record["note"], note_input)
+            data_ric_clean = ""
+            motivo_ric_clean = ""
+
+        # Costruzione nota cronologica
+        blocchi_nuove_note = []
+        if esito_finale == "Interessato (Ordine preso)" and importo_val > 0:
+            suffisso_ord = f" - {note_input}" if (note_input and not data_ric_clean) else ""
+            blocchi_nuove_note.append(f"[{data_ora}] ORDINE CONFERMATO: € {importo_val:.2f}{suffisso_ord}")
+
+        if data_ric_clean:
+            suffisso_ric = f" - {note_input}" if note_input else ""
+            blocchi_nuove_note.append(
+                f"[{data_ora}] RICONTATTO PROGRAMMATO PER {data_ric_clean} ({motivo_ric_clean}){suffisso_ric}"
+            )
+        elif not blocchi_nuove_note and note_input:
+            blocchi_nuove_note.append(note_input)
+
+        nota_finale = record["note"] or ""
+        for blocco in blocchi_nuove_note:
+            nota_finale = _accoda_nota_sql(nota_finale, blocco)
 
         nuovo_referente = record["referente"] or ""
         if referente is not None and str(referente).strip() != "":
@@ -647,15 +848,30 @@ def registra_esito_chiamata(
         cur.execute(
             """
             UPDATE contatti_ingrosso
-            SET chiamato = ?, esito = ?, note = ?, referente = ?, priorita = ?, data_aggiornamento = ?
+            SET chiamato = ?,
+                esito = ?,
+                note = ?,
+                referente = ?,
+                priorita = ?,
+                data_ricontatto = ?,
+                motivo_ricontatto = ?,
+                data_aggiornamento = ?
             WHERE id = ?
             """,
-            (chiamato, esito, nota_finale, nuovo_referente, nuova_priorita, data_ora, id_contatto),
+            (
+                chiamato,
+                esito_finale,
+                nota_finale,
+                nuovo_referente,
+                nuova_priorita,
+                data_ric_clean,
+                motivo_ric_clean,
+                data_ora,
+                id_contatto,
+            ),
         )
 
-        # Se è stato confermato un ordine con importo > 0, registra in storico_ordini e ricalcola
-        if esito == "Interessato (Ordine preso)" and importo_val > 0:
-            # Se il contatto aveva un totale_ordini pregresso senza record in storico_ordini, sincronizzalo
+        if esito_finale == "Interessato (Ordine preso)" and importo_val > 0:
             cur.execute("SELECT COUNT(*) AS cnt FROM storico_ordini WHERE contatto_id = ?", (id_contatto,))
             cnt_esistenti = cur.fetchone()["cnt"]
             tot_pregresso = float(record["totale_ordini"] or 0.0)
@@ -705,7 +921,6 @@ def aggiungi_nuovo_ordine(contatto_id, importo, note_ordine=""):
         data_ora = datetime.now().strftime("%Y-%m-%d %H:%M")
         note_clean = str(note_ordine or "").strip()
 
-        # Sincronizza eventuale saldo iniziale se storico_ordini era vuoto ma totale_ordini > 0
         cur.execute("SELECT COUNT(*) AS cnt FROM storico_ordini WHERE contatto_id = ?", (contatto_id,))
         cnt_esistenti = cur.fetchone()["cnt"]
         tot_pregresso = float(record["totale_ordini"] or 0.0)
@@ -810,10 +1025,21 @@ def aggiorna_priorita(contatto_id, priorita):
         return False
 
 
-def aggiorna_contatto(id_contatto, azienda, referente, telefono, citta, regione="", priorita=2, note=None):
+def aggiorna_contatto(
+    id_contatto,
+    azienda,
+    referente,
+    telefono,
+    citta,
+    regione="",
+    priorita=2,
+    note=None,
+    data_ricontatto=None,
+    motivo_ricontatto=None,
+):
     """
-    Aggiorna i dati anagrafici, il referente, la città/regione e la priorità di un contatto esistente.
-    Se regione è vuota, usa automaticamente deduci_regione(citta).
+    Aggiorna i dati anagrafici, il referente, la città/regione, la priorità e opzionalmente
+    i campi di ricontatto di un contatto esistente.
     """
     azienda_clean = str(azienda or "").strip()
     telefono_clean = str(telefono or "").strip()
@@ -830,45 +1056,46 @@ def aggiorna_contatto(id_contatto, azienda, referente, telefono, citta, regione=
     try:
         conn = connetti()
         cur = conn.cursor()
-        if note is not None:
-            cur.execute(
-                """
-                UPDATE contatti_ingrosso
-                SET azienda = ?, referente = ?, telefono = ?, citta = ?, regione = ?,
-                    priorita = ?, note = ?, data_aggiornamento = ?
-                WHERE id = ?
-                """,
-                (
-                    azienda_clean,
-                    referente_clean,
-                    telefono_clean,
-                    citta_clean,
-                    regione_clean,
-                    priorita_val,
-                    str(note).strip(),
-                    data_ora,
-                    id_contatto,
-                ),
-            )
-        else:
-            cur.execute(
-                """
-                UPDATE contatti_ingrosso
-                SET azienda = ?, referente = ?, telefono = ?, citta = ?, regione = ?,
-                    priorita = ?, data_aggiornamento = ?
-                WHERE id = ?
-                """,
-                (
-                    azienda_clean,
-                    referente_clean,
-                    telefono_clean,
-                    citta_clean,
-                    regione_clean,
-                    priorita_val,
-                    data_ora,
-                    id_contatto,
-                ),
-            )
+        cur.execute("SELECT * FROM contatti_ingrosso WHERE id = ?", (id_contatto,))
+        rec = cur.fetchone()
+        if not rec:
+            conn.close()
+            return False
+
+        nota_val = str(note).strip() if note is not None else (rec["note"] or "")
+        data_ric_val = (
+            _normalizza_data_ricontatto(data_ricontatto)
+            if data_ricontatto is not None
+            else (rec["data_ricontatto"] or "")
+        )
+        motivo_ric_val = (
+            str(motivo_ricontatto).strip()
+            if motivo_ricontatto is not None
+            else (rec["motivo_ricontatto"] or "")
+        )
+
+        cur.execute(
+            """
+            UPDATE contatti_ingrosso
+            SET azienda = ?, referente = ?, telefono = ?, citta = ?, regione = ?,
+                priorita = ?, note = ?, data_ricontatto = ?, motivo_ricontatto = ?,
+                data_aggiornamento = ?
+            WHERE id = ?
+            """,
+            (
+                azienda_clean,
+                referente_clean,
+                telefono_clean,
+                citta_clean,
+                regione_clean,
+                priorita_val,
+                nota_val,
+                data_ric_val,
+                motivo_ric_val,
+                data_ora,
+                id_contatto,
+            ),
+        )
         modificati = cur.rowcount
         conn.commit()
         conn.close()
@@ -926,6 +1153,12 @@ ALIAS_COLONNE_IMPORT = {
     "importo": "totale_ordini",
     "ordine": "totale_ordini",
     "fatturato": "totale_ordini",
+    "data_ricontatto": "data_ricontatto",
+    "dataricontatto": "data_ricontatto",
+    "ricontatto": "data_ricontatto",
+    "appuntamento": "data_ricontatto",
+    "motivo_ricontatto": "motivo_ricontatto",
+    "motivoricontatto": "motivo_ricontatto",
 }
 
 
@@ -954,6 +1187,8 @@ def _mappa_dizionario_grezzo(d):
         "note": "",
         "priorita": 2,
         "totale_ordini": 0.0,
+        "data_ricontatto": "",
+        "motivo_ricontatto": "",
     }
     for k, v in d.items():
         chiave_std = _normalizza_chiave_colonna(k)
@@ -971,12 +1206,10 @@ def _estrai_record_da_testo(contenuto_testo, nome_file=""):
     if not testo:
         return [], "vuoto"
 
-    # 1. Tentativo JSON se inizia con [ o { o se l'estensione è .json
     if testo.startswith("[") or testo.startswith("{") or str(nome_file).lower().endswith(".json"):
         try:
             parsed = json.loads(testo)
             if isinstance(parsed, dict):
-                # Supporta eventuale wrapper {"contatti": [...]} o {"data": [...]}
                 if "contatti" in parsed and isinstance(parsed["contatti"], list):
                     parsed = parsed["contatti"]
                 elif "data" in parsed and isinstance(parsed["data"], list):
@@ -989,13 +1222,11 @@ def _estrai_record_da_testo(contenuto_testo, nome_file=""):
             if str(nome_file).lower().endswith(".json") or testo.startswith("["):
                 raise ValueError("Errore di sintassi nel contenuto JSON fornito.")
 
-    # 2. Analisi righe per CSV / TSV / Copia-Incolla Excel / TXT
     linee = [ln.strip() for ln in testo.splitlines() if ln.strip()]
     if not linee:
         return [], "vuoto"
 
     prima_linea = linee[0]
-    # Rileva il separatore prevalente
     if "\t" in prima_linea:
         delimitatore = "\t"
         formato = "TSV / Excel"
@@ -1018,7 +1249,6 @@ def _estrai_record_da_testo(contenuto_testo, nome_file=""):
         if not righe_csv:
             return [], formato
 
-        # Verifica se la prima riga è un'intestazione
         prime_colonne_mappate = [_normalizza_chiave_colonna(c) for c in righe_csv[0]]
         ha_header = ("azienda" in prime_colonne_mappate) or ("telefono" in prime_colonne_mappate)
 
@@ -1033,17 +1263,14 @@ def _estrai_record_da_testo(contenuto_testo, nome_file=""):
                 records.append(_mappa_dizionario_grezzo(d))
             return records, formato
         else:
-            # Righe senza header: euristica posizionale / riconoscimento telefono
             for row in righe_csv:
                 records.append(_interpreta_campi_senza_header(row))
             return records, formato
 
-    # 3. Formato lista testo semplice (es. "Azienda - Telefono - Città - Note")
     records = []
     for ln in linee:
         parti = [p.strip() for p in re.split(r"\s+-\s+|\s*[;|]\s*", ln) if p.strip()]
         if len(parti) == 1:
-            # Prova a separare l'ultimo o il primo numero di telefono nella riga
             match_tel = re.search(r"(\+?\d[\d\s\.\-\/]{6,}\d)", ln)
             if match_tel:
                 tel_trovato = match_tel.group(1).strip()
@@ -1065,11 +1292,12 @@ def _interpreta_campi_senza_header(campi):
         "note": "",
         "priorita": 2,
         "totale_ordini": 0.0,
+        "data_ricontatto": "",
+        "motivo_ricontatto": "",
     }
     if not puliti:
         return risultato
 
-    # Individua quale elemento è un numero di telefono
     idx_tel = None
     for i, val in enumerate(puliti):
         solo_num = normalizza_telefono(val)
@@ -1082,7 +1310,6 @@ def _interpreta_campi_senza_header(campi):
     if restanti:
         risultato["azienda"] = restanti[0]
     if len(restanti) >= 2:
-        # Se il secondo campo è una città nota o breve, usalo come città
         if deduci_regione(restanti[1]) or len(restanti[1]) <= 28:
             risultato["citta"] = restanti[1]
         else:
@@ -1095,8 +1322,6 @@ def _interpreta_campi_senza_header(campi):
 def importa_contatti_universale(contenuto_testo, nome_file="", ignora_duplicati_telefono=True):
     """
     Importa contatti da testo in formato JSON, CSV (, o ;), TSV/Excel o TXT.
-    Mappa automaticamente le colonne case-insensitive, deduce la regione se mancante
-    e filtra i duplicati tramite normalizza_telefono().
     """
     try:
         records, formato = _estrai_record_da_testo(contenuto_testo, nome_file=nome_file)
@@ -1143,6 +1368,8 @@ def _inserisci_lista_contatti_mappati(records, ignora_duplicati_telefono=True, f
             note = str(c.get("note", "")).strip()
             priorita = _parse_priorita(c.get("priorita", 2), default=2)
             totale_ordini = _parse_importo(c.get("totale_ordini", 0.0), default=0.0)
+            data_ric = _normalizza_data_ricontatto(c.get("data_ricontatto", ""))
+            motivo_ric = str(c.get("motivo_ricontatto", "")).strip()
 
             if not azienda or not telefono:
                 errori += 1
@@ -1161,16 +1388,22 @@ def _inserisci_lista_contatti_mappati(records, ignora_duplicati_telefono=True, f
                 regione = deduci_regione(citta)
 
             chiamato = "Sì" if totale_ordini > 0 else "No"
-            esito = "Interessato (Ordine preso)" if totale_ordini > 0 else "In attesa"
+            if totale_ordini > 0:
+                esito = "Interessato (Ordine preso)"
+            elif data_ric:
+                esito = "Da richiamare"
+            else:
+                esito = "In attesa"
             numero_ordini = 1 if totale_ordini > 0 else 0
 
             cur.execute(
                 """
                 INSERT INTO contatti_ingrosso (
                     azienda, referente, telefono, citta, regione, note,
-                    chiamato, esito, priorita, totale_ordini, numero_ordini, data_aggiornamento
+                    chiamato, esito, priorita, totale_ordini, numero_ordini,
+                    data_ricontatto, motivo_ricontatto, data_aggiornamento
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     azienda,
@@ -1184,6 +1417,8 @@ def _inserisci_lista_contatti_mappati(records, ignora_duplicati_telefono=True, f
                     priorita,
                     totale_ordini,
                     numero_ordini,
+                    data_ric,
+                    motivo_ric,
                     data_ora,
                 ),
             )
@@ -1216,10 +1451,7 @@ def _inserisci_lista_contatti_mappati(records, ignora_duplicati_telefono=True, f
 
 
 def importa_contatti_da_json(percorso_file, ignora_duplicati_telefono=True):
-    """
-    Legge un file JSON contenente una lista di contatti e li inserisce nel database.
-    Retrocompatibile al 100% con la versione precedente.
-    """
+    """Legge un file JSON contenente una lista di contatti e li inserisce nel database."""
     if not os.path.exists(percorso_file):
         return {"errore": f"Il file '{percorso_file}' non esiste."}
 
@@ -1259,11 +1491,10 @@ def esporta_contatti_in_json(percorso_file):
 def genera_csv_contatti():
     """
     Genera una stringa CSV compatibile con Excel Italiano (separatore ';', UTF-8 BOM)
-    contenente l'anagrafica completa e i riepiloghi ordini.
+    contenente l'anagrafica completa, i ricontatti e i riepiloghi ordini.
     """
     contatti = ottieni_tutti_contatti()
     output = io.StringIO()
-    # BOM UTF-8 per apertura immediata corretta in Microsoft Excel
     output.write("\ufeff")
     writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
     writer.writerow([
@@ -1276,6 +1507,8 @@ def genera_csv_contatti():
         "Regione",
         "Chiamato",
         "Esito",
+        "Data_Ricontatto",
+        "Motivo_Ricontatto",
         "Numero_Ordini",
         "Totale_Ordini_EUR",
         "Ultimo_Aggiornamento",
@@ -1294,6 +1527,8 @@ def genera_csv_contatti():
             d["regione"],
             d["chiamato"],
             d["esito"],
+            d["data_ricontatto"],
+            d["motivo_ricontatto"],
             d["numero_ordini"],
             f"{d['totale_ordini']:.2f}".replace(".", ","),
             d["data_aggiornamento"],
@@ -1303,7 +1538,7 @@ def genera_csv_contatti():
 
 
 # ==============================================================================
-# 1C. STATISTICHE, FATTURATO ORDINI E ANALISI TERRITORIALE (CITTÀ & REGIONI)
+# 1C. STATISTICHE, FATTURATO ORDINI, ANALISI TERRITORIALE E CONTATORI CALENDARIO
 # ==============================================================================
 
 def ottieni_statistiche():
@@ -1311,6 +1546,7 @@ def ottieni_statistiche():
     Calcola statistiche complete per il cruscotto commerciale:
     - totali, chiamati, interessati, rifiutati, da_contattare
     - fatturato_totale_ordini (€), valore_medio_ordine (€), totale_ordini_effettuati
+    - ricontatti_oggi, ricontatti_scaduti, totale_pianificati
     - analisi_regioni e analisi_citta per i grafici territoriali
     """
     try:
@@ -1329,7 +1565,12 @@ def ottieni_statistiche():
         cur.execute("SELECT COUNT(*) FROM contatti_ingrosso WHERE esito = 'Non interessato (Rifiutato)'")
         rifiutati = cur.fetchone()[0]
 
-        cur.execute("SELECT COUNT(*) FROM contatti_ingrosso WHERE chiamato = 'No' OR esito = 'Da richiamare'")
+        cur.execute("""
+            SELECT COUNT(*) FROM contatti_ingrosso
+            WHERE chiamato = 'No'
+               OR esito = 'Da richiamare'
+               OR (data_ricontatto IS NOT NULL AND TRIM(data_ricontatto) != '')
+        """)
         da_contattare = cur.fetchone()[0]
 
         cur.execute("SELECT COUNT(*) FROM contatti_ingrosso WHERE esito = 'Da richiamare'")
@@ -1347,7 +1588,6 @@ def ottieni_statistiche():
         fatturato_totale_ordini = round(float(row_ord["fatturato"] or 0.0), 2)
         totale_ordini_effettuati = int(row_ord["num_ordini"] or 0)
 
-        # Se ci sono clienti con totale_ordini > 0 ma numero_ordini = 0, conteggia almeno 1 ordine
         if fatturato_totale_ordini > 0 and totale_ordini_effettuati == 0:
             cur.execute("SELECT COUNT(*) FROM contatti_ingrosso WHERE totale_ordini > 0")
             totale_ordini_effettuati = cur.fetchone()[0]
@@ -1358,18 +1598,31 @@ def ottieni_statistiche():
             else 0.0
         )
 
-        # Analisi aggregata per Regione e per Città
         cur.execute("""
-            SELECT citta, regione, chiamato, esito, totale_ordini, numero_ordini
+            SELECT citta, regione, chiamato, esito, totale_ordini, numero_ordini, data_ricontatto
             FROM contatti_ingrosso
         """)
         tutte_righe = cur.fetchall()
         conn.close()
 
+        adesso_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        ricontatti_oggi = 0
+        ricontatti_scaduti = 0
+        totale_pianificati = 0
+
         mappa_regioni = {}
         mappa_citta = {}
 
         for r in tutte_righe:
+            data_ric = (r["data_ricontatto"] or "").strip()
+            if data_ric:
+                totale_pianificati += 1
+                stato_r = calcola_stato_ricontatto(data_ric, adesso_str=adesso_str)
+                if stato_r == "scaduto":
+                    ricontatti_scaduti += 1
+                elif stato_r == "oggi":
+                    ricontatti_oggi += 1
+
             citta_raw = (r["citta"] or "").strip()
             regione_raw = (r["regione"] or "").strip()
             if not regione_raw and citta_raw:
@@ -1382,7 +1635,6 @@ def ottieni_statistiche():
             tot_ord = round(float(r["totale_ordini"] or 0.0), 2)
             ha_ordine = 1 if (r["esito"] == "Interessato (Ordine preso)" or tot_ord > 0) else 0
 
-            # Aggrega Regione
             if nome_regione not in mappa_regioni:
                 mappa_regioni[nome_regione] = {
                     "nome": nome_regione,
@@ -1398,7 +1650,6 @@ def ottieni_statistiche():
                 mappa_regioni[nome_regione]["fatturato_ordini"] + tot_ord, 2
             )
 
-            # Aggrega Città
             chiave_citta = nome_citta.lower()
             if chiave_citta not in mappa_citta:
                 mappa_citta[chiave_citta] = {
@@ -1440,6 +1691,9 @@ def ottieni_statistiche():
             "fatturato_totale_ordini": fatturato_totale_ordini,
             "valore_medio_ordine": valore_medio_ordine,
             "totale_ordini_effettuati": totale_ordini_effettuati,
+            "ricontatti_oggi": ricontatti_oggi,
+            "ricontatti_scaduti": ricontatti_scaduti,
+            "totale_pianificati": totale_pianificati,
             "analisi_regioni": analisi_regioni,
             "analisi_citta": analisi_citta,
             "gruppi_duplicati": duplicati_rilevati,
@@ -1473,7 +1727,6 @@ def rileva_duplicati():
     Individua i gruppi di contatti ridondanti nel DB che condividono:
     - lo stesso numero di telefono normalizzato (normalizza_telefono)
     - oppure lo stesso nome azienda normalizzato (normalizza_azienda).
-    Restituisce una lista di gruppi di duplicati.
     """
     try:
         righe = ottieni_tutti_contatti()
@@ -1500,7 +1753,6 @@ def rileva_duplicati():
 
         mappa_tel = {}
         mappa_az = {}
-        motivi_coppia = {}
 
         for idx, c in enumerate(contatti):
             t_norm = normalizza_telefono(c["telefono"])
@@ -1508,17 +1760,13 @@ def rileva_duplicati():
 
             if t_norm:
                 if t_norm in mappa_tel:
-                    prev_idx = mappa_tel[t_norm]
-                    union(prev_idx, idx)
-                    motivi_coppia.setdefault(find(prev_idx), set()).add("Telefono identico")
+                    union(mappa_tel[t_norm], idx)
                 else:
                     mappa_tel[t_norm] = idx
 
             if a_norm:
                 if a_norm in mappa_az:
-                    prev_idx = mappa_az[a_norm]
-                    union(prev_idx, idx)
-                    motivi_coppia.setdefault(find(prev_idx), set()).add("Azienda omonima")
+                    union(mappa_az[a_norm], idx)
                 else:
                     mappa_az[a_norm] = idx
 
@@ -1532,7 +1780,6 @@ def rileva_duplicati():
             if len(indici) < 2:
                 continue
             elementi = [contatti[i] for i in indici]
-            # Determina i motivi specifici del gruppo
             tels = [normalizza_telefono(e["telefono"]) for e in elementi if normalizza_telefono(e["telefono"])]
             azs = [normalizza_azienda(e["azienda"]) for e in elementi if normalizza_azienda(e["azienda"])]
             dup_tel = len(tels) != len(set(tels))
@@ -1545,7 +1792,6 @@ def rileva_duplicati():
             else:
                 motivo = "Stessa Ragione Sociale / Azienda omonima"
 
-            # Ordina suggerendo come principale quello con più ordini o inserito prima
             elementi_ordinati = sorted(
                 elementi,
                 key=lambda x: (-x["totale_ordini"], -x["numero_ordini"], x["priorita"], x["id"]),
@@ -1566,11 +1812,11 @@ def rileva_duplicati():
 def unisci_contatti(id_principale, id_secondario):
     """
     Unisce due contatti duplicati mantenendo id_principale:
-    1. Completa referente, citta, regione se vuoti con quelli di id_secondario.
+    1. Completa referente, citta, regione, data_ricontatto, motivo_ricontatto se vuoti con quelli di id_secondario.
     2. Concatena le note con ' | '.
     3. Trasferisce gli ordini in storico_ordini da id_secondario a id_principale
        e ricalcola totale_ordini e numero_ordini.
-    4. Imposta la priorità più alta (valore numerico minore tra 1, 2, 3) ed elimina id_secondario.
+    4. Imposta la priorità più alta ed elimina id_secondario.
     """
     if id_principale == id_secondario:
         return False
@@ -1589,14 +1835,15 @@ def unisci_contatti(id_principale, id_secondario):
 
         data_ora = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        # 1. Campi anagrafici complementari
         referente = (principale["referente"] or "").strip() or (secondario["referente"] or "").strip()
         citta = (principale["citta"] or "").strip() or (secondario["citta"] or "").strip()
         regione = (principale["regione"] or "").strip() or (secondario["regione"] or "").strip()
         if not regione and citta:
             regione = deduci_regione(citta)
 
-        # 2. Concatenazione note senza duplicare blocchi identici
+        data_ric = (principale["data_ricontatto"] or "").strip() or (secondario["data_ricontatto"] or "").strip()
+        motivo_ric = (principale["motivo_ricontatto"] or "").strip() or (secondario["motivo_ricontatto"] or "").strip()
+
         nota_p = (principale["note"] or "").strip()
         nota_s = (secondario["note"] or "").strip()
         if nota_s and nota_s not in nota_p:
@@ -1604,12 +1851,10 @@ def unisci_contatti(id_principale, id_secondario):
         else:
             note_unite = nota_p
 
-        # 3. Priorità più alta (1 = Alta vince su 2 e 3)
         prio_p = _parse_priorita(principale["priorita"], default=2)
         prio_s = _parse_priorita(secondario["priorita"], default=2)
         priorita_finale = min(prio_p, prio_s)
 
-        # Stato chiamata ed esito più avanzato
         chiamato_finale = "Sì" if (principale["chiamato"] == "Sì" or secondario["chiamato"] == "Sì") else "No"
         ordine_esiti = {
             "Interessato (Ordine preso)": 1,
@@ -1625,7 +1870,6 @@ def unisci_contatti(id_principale, id_secondario):
             else esito_s
         )
 
-        # 4. Sincronizza eventuali saldi ordini non presenti in storico_ordini prima del trasferimento
         for rec in (principale, secondario):
             cur.execute("SELECT COUNT(*) AS cnt FROM storico_ordini WHERE contatto_id = ?", (rec["id"],))
             cnt_st = cur.fetchone()["cnt"]
@@ -1636,24 +1880,22 @@ def unisci_contatti(id_principale, id_secondario):
                     (rec["id"], tot_rec, f"Ordine scheda #{rec['id']}", rec["data_aggiornamento"] or data_ora),
                 )
 
-        # Trasferisce gli ordini da id_secondario a id_principale
         cur.execute(
             "UPDATE storico_ordini SET contatto_id = ? WHERE contatto_id = ?",
             (id_principale, id_secondario),
         )
 
-        # Ricalcola totale_ordini e numero_ordini su id_principale
         tot_ord, num_ord = _ricalcola_ordini_contatto(cur, id_principale)
         if tot_ord > 0:
             esito_finale = "Interessato (Ordine preso)"
             chiamato_finale = "Sì"
 
-        # Aggiorna il record principale
         cur.execute(
             """
             UPDATE contatti_ingrosso
             SET referente = ?, citta = ?, regione = ?, note = ?,
-                priorita = ?, chiamato = ?, esito = ?, data_aggiornamento = ?
+                priorita = ?, chiamato = ?, esito = ?,
+                data_ricontatto = ?, motivo_ricontatto = ?, data_aggiornamento = ?
             WHERE id = ?
             """,
             (
@@ -1664,12 +1906,13 @@ def unisci_contatti(id_principale, id_secondario):
                 priorita_finale,
                 chiamato_finale,
                 esito_finale,
+                data_ric,
+                motivo_ric,
                 data_ora,
                 id_principale,
             ),
         )
 
-        # Elimina il contatto secondario
         cur.execute("DELETE FROM contatti_ingrosso WHERE id = ?", (id_secondario,))
 
         conn.commit()
@@ -1685,7 +1928,8 @@ def ripristina_dati_demo():
     Popola il database con un dataset dimostrativo ricco:
     - 12 contatti distribuiti in più città e regioni italiane
     - Referenti, priorità miste (1=Alta, 2=Normale, 3=Bassa)
-    - Ordini multipli già confermati in € per testare i grafici e la Tab Ordini Confermati
+    - Ordini multipli già confermati in €
+    - 5 appuntamenti di ricontatto realistici (1 scaduto, 2 fissati per OGGI, 2 nei prossimi giorni)
     - 2 coppie di contatti duplicati per testare subito la Tab Duplicati & Ridondanze
     """
     try:
@@ -1694,6 +1938,17 @@ def ripristina_dati_demo():
         cur = conn.cursor()
         cur.execute("DELETE FROM storico_ordini")
         cur.execute("DELETE FROM contatti_ingrosso")
+        cur.execute("DELETE FROM sqlite_sequence WHERE name IN ('contatti_ingrosso', 'storico_ordini')")
+
+        adesso = datetime.now()
+        ieri_str = (adesso - timedelta(days=1)).strftime("%Y-%m-%d")
+        oggi_str = adesso.strftime("%Y-%m-%d")
+        domani_str = (adesso + timedelta(days=1)).strftime("%Y-%m-%d")
+        tra_3gg_str = (adesso + timedelta(days=3)).strftime("%Y-%m-%d")
+
+        # Orari dinamici di oggi: uno futuro nella giornata odierna (es. 18:30 o +1h) e uno a metà pomeriggio
+        ora_oggi_1 = (adesso + timedelta(hours=1)).strftime("%H:%M") if adesso.hour < 22 else "23:30"
+        ora_oggi_2 = "23:45" if adesso.hour >= 17 else "17:30"
 
         demo_leads = [
             {
@@ -1705,6 +1960,8 @@ def ripristina_dati_demo():
                 "priorita": 1,
                 "chiamato": "Sì",
                 "esito": "Interessato (Ordine preso)",
+                "data_ricontatto": f"{tra_3gg_str} 11:00",
+                "motivo_ricontatto": "Follow-up nuovo ordine",
                 "note": "Catena con 3 boutique in centro a Milano | [2026-10-10 10:30] ORDINE CONFERMATO: € 4850.00 - Collezione Autunno/Inverno Donna | [2026-10-16 15:15] ORDINE CONFERMATO: € 3200.00 - Riassortimento stivaletti pelle",
                 "data_aggiornamento": "2026-10-16 15:15",
                 "ordini": [
@@ -1721,6 +1978,8 @@ def ripristina_dati_demo():
                 "priorita": 1,
                 "chiamato": "Sì",
                 "esito": "Interessato (Ordine preso)",
+                "data_ricontatto": "",
+                "motivo_ricontatto": "",
                 "note": "Showroom storico vicino Piazza di Spagna | [2026-10-12 11:00] ORDINE CONFERMATO: € 6400.00 - Linea mocassini e décolleté artigianali",
                 "data_aggiornamento": "2026-10-12 11:00",
                 "ordini": [
@@ -1737,6 +1996,8 @@ def ripristina_dati_demo():
                 "priorita": 1,
                 "chiamato": "Sì",
                 "esito": "Interessato (Ordine preso)",
+                "data_ricontatto": "",
+                "motivo_ricontatto": "",
                 "note": "Concept store lungarno, clientela internazionale | [2026-10-14 16:40] ORDINE CONFERMATO: € 5100.00 - Capsule artigianale NOGA",
                 "data_aggiornamento": "2026-10-14 16:40",
                 "ordini": [
@@ -1752,12 +2013,15 @@ def ripristina_dati_demo():
                 "priorita": 2,
                 "chiamato": "Sì",
                 "esito": "Interessato (Ordine preso)",
+                "data_ricontatto": "",
+                "motivo_ricontatto": "",
                 "note": "2 punti vendita a Chiaia e Vomero | [2026-10-15 12:20] ORDINE CONFERMATO: € 2950.00 - Campionatura + primo ordine",
                 "data_aggiornamento": "2026-10-15 12:20",
                 "ordini": [
                     (2950.00, "Campionatura + primo ordine stagione", "2026-10-15 12:20"),
                 ],
             },
+            # Appuntamento 1: SCADUTO (Ieri alle 11:00)
             {
                 "azienda": "Galleria Sabauda Footwear",
                 "referente": "Elena Ferrero",
@@ -1767,8 +2031,10 @@ def ripristina_dati_demo():
                 "priorita": 1,
                 "chiamato": "No",
                 "esito": "Da richiamare",
-                "note": "Titolare molto interessata al catalogo B2B, richiamare nel pomeriggio per definire quantità",
-                "data_aggiornamento": "2026-10-16 17:00",
+                "data_ricontatto": f"{ieri_str} 11:00",
+                "motivo_ricontatto": "Appuntamento concordato",
+                "note": f"Titolare molto interessata al catalogo B2B | [{ieri_str} 09:30] RICONTATTO PROGRAMMATO PER {ieri_str} 11:00 (Appuntamento concordato) - Definire quantità ordine autunno",
+                "data_aggiornamento": f"{ieri_str} 09:30",
                 "ordini": [],
             },
             {
@@ -1780,12 +2046,15 @@ def ripristina_dati_demo():
                 "priorita": 2,
                 "chiamato": "Sì",
                 "esito": "Interessato (Ordine preso)",
+                "data_ricontatto": "",
+                "motivo_ricontatto": "",
                 "note": "Negozio sotto i portici del centro | [2026-10-13 10:10] ORDINE CONFERMATO: € 2150.00 - Ordine prova collezione donna",
                 "data_aggiornamento": "2026-10-13 10:10",
                 "ordini": [
                     (2150.00, "Ordine prova collezione donna", "2026-10-13 10:10"),
                 ],
             },
+            # Appuntamento 2: OGGI (Orario 1)
             {
                 "azienda": "Laguna Glamour Shoes",
                 "referente": "Alvise Contarini",
@@ -1794,11 +2063,14 @@ def ripristina_dati_demo():
                 "regione": "Veneto",
                 "priorita": 1,
                 "chiamato": "No",
-                "esito": "In attesa",
-                "note": "Boutique di fascia alta a San Marco, inviare lookbook prima della chiamata",
-                "data_aggiornamento": "2026-10-16 09:30",
+                "esito": "Da richiamare",
+                "data_ricontatto": f"{oggi_str} {ora_oggi_1}",
+                "motivo_ricontatto": "Appuntamento concordato",
+                "note": f"Boutique di fascia alta a San Marco | [{oggi_str} 09:15] RICONTATTO PROGRAMMATO PER {oggi_str} {ora_oggi_1} (Appuntamento concordato) - Presentazione listino B2B",
+                "data_aggiornamento": f"{oggi_str} 09:15",
                 "ordini": [],
             },
+            # Appuntamento 3: OGGI (Orario 2)
             {
                 "azienda": "Adriatica Showroom S.r.l.",
                 "referente": "Dott. Nicola De Santis",
@@ -1808,8 +2080,10 @@ def ripristina_dati_demo():
                 "priorita": 2,
                 "chiamato": "Sì",
                 "esito": "Da richiamare",
-                "note": "Inviare catalogo WhatsApp e listino B2B aggiornato, valuta ordine entro venerdì",
-                "data_aggiornamento": "2026-10-16 11:45",
+                "data_ricontatto": f"{oggi_str} {ora_oggi_2}",
+                "motivo_ricontatto": "Titolare assente",
+                "note": f"Inviato catalogo WhatsApp e listino B2B | [{oggi_str} 10:00] RICONTATTO PROGRAMMATO PER {oggi_str} {ora_oggi_2} (Titolare assente) - Richiamare per chiusura ordine",
+                "data_aggiornamento": f"{oggi_str} 10:00",
                 "ordini": [],
             },
             {
@@ -1821,10 +2095,13 @@ def ripristina_dati_demo():
                 "priorita": 3,
                 "chiamato": "Sì",
                 "esito": "Non interessato (Rifiutato)",
+                "data_ricontatto": "",
+                "motivo_ricontatto": "",
                 "note": "Trattano solo produzione propria per questa stagione",
                 "data_aggiornamento": "2026-10-11 14:20",
                 "ordini": [],
             },
+            # Appuntamento 4: FUTURO (Domani alle 10:00)
             {
                 "azienda": "Trinacria Luxury Concept",
                 "referente": "Ruggero Altavilla",
@@ -1833,12 +2110,14 @@ def ripristina_dati_demo():
                 "regione": "Sicilia",
                 "priorita": 2,
                 "chiamato": "No",
-                "esito": "In attesa",
-                "note": "Punto vendita in Via Libertà, cerca calzature made in Italy",
-                "data_aggiornamento": "2026-10-16 10:00",
+                "esito": "Da richiamare",
+                "data_ricontatto": f"{domani_str} 10:00",
+                "motivo_ricontatto": "Non risponde / Segreteria",
+                "note": f"Punto vendita in Via Libertà | [{oggi_str} 11:20] RICONTATTO PROGRAMMATO PER {domani_str} 10:00 (Non risponde / Segreteria)",
+                "data_aggiornamento": f"{oggi_str} 11:20",
                 "ordini": [],
             },
-            # Duplicato 1: Stesso telefono di Calzature Brera Luxury ma scritto con trattini e senza +39
+            # Duplicato 1
             {
                 "azienda": "Brera Luxury Milano (Showroom)",
                 "referente": "",
@@ -1848,13 +2127,15 @@ def ripristina_dati_demo():
                 "priorita": 2,
                 "chiamato": "No",
                 "esito": "Da richiamare",
+                "data_ricontatto": "",
+                "motivo_ricontatto": "",
                 "note": "Contatto raccolto in fiera MICAM - chiedere di Giulia Visconti per secondo punto vendita",
                 "data_aggiornamento": "2026-10-15 18:00",
                 "ordini": [
                     (1450.00, "Pre-ordine fiera MICAM", "2026-10-15 18:00"),
                 ],
             },
-            # Duplicato 2: Stessa ragione sociale normalizzata di Atelier del Passo Condotti (con S.R.L. e punteggiatura)
+            # Duplicato 2
             {
                 "azienda": "Atelier del Passo Condotti S.R.L.",
                 "referente": "Marco Valeri (Buyer)",
@@ -1864,6 +2145,8 @@ def ripristina_dati_demo():
                 "priorita": 3,
                 "chiamato": "No",
                 "esito": "In attesa",
+                "data_ricontatto": "",
+                "motivo_ricontatto": "",
                 "note": "Interno ufficio acquisti secondario Via Condotti",
                 "data_aggiornamento": "2026-10-14 09:00",
                 "ordini": [],
@@ -1878,9 +2161,10 @@ def ripristina_dati_demo():
                 """
                 INSERT INTO contatti_ingrosso (
                     azienda, referente, telefono, citta, regione, note,
-                    chiamato, esito, priorita, totale_ordini, numero_ordini, data_aggiornamento
+                    chiamato, esito, priorita, totale_ordini, numero_ordini,
+                    data_ricontatto, motivo_ricontatto, data_aggiornamento
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item["azienda"],
@@ -1894,6 +2178,8 @@ def ripristina_dati_demo():
                     item["priorita"],
                     tot_ord,
                     num_ord,
+                    item.get("data_ricontatto", ""),
+                    item.get("motivo_ricontatto", ""),
                     item["data_aggiornamento"],
                 ),
             )
@@ -1925,11 +2211,11 @@ def mostra_menu():
     print("   CRM ACQUISIZIONE CLIENTI ALL'INGROSSO - NOGA ROMA (CLI)   ")
     print("=" * 64)
     print("1. Inserisci manualmente un nuovo contatto")
-    print("2. Coda chiamate ( Ordinata per Priorità )")
+    print("2. Coda chiamate ( Ordinata per Ricontatti & Priorità )")
     print("3. Mostra TUTTI i contatti")
     print("4. Cerca contatto (Azienda, Referente, Telefono, Città, Regione)")
-    print("5. Registra chiamata ed esito (+ eventuale Ordine in €)")
-    print("6. Cruscotto statistiche commerciali, Fatturato e Regioni")
+    print("5. Registra chiamata ed esito (+ Ordine € / + Ricontatto)")
+    print("6. Cruscotto statistiche commerciali, Fatturato e Calendario")
     print("7. IMPORTA contatti da file (JSON / CSV / TXT)")
     print("8. ESPORTA contatti correnti in file JSON")
     print("9. Elimina un contatto")
@@ -1944,28 +2230,30 @@ def stampa_tabella_contatti(righe):
         return
 
     mappa_p = {1: "ALTA", 2: "NORM", 3: "BASSA"}
-    print("\n" + "-" * 130)
+    print("\n" + "-" * 140)
     print(
-        f"{'ID':<4} | {'PRIO':<5} | {'Azienda':<24} | {'Referente':<16} | {'Telefono':<14} | {'Città (Regione)':<22} | {'Ordini €':<12} | {'Esito':<20}"
+        f"{'ID':<4} | {'PRIO':<5} | {'Azienda':<22} | {'Referente':<15} | {'Telefono':<13} | {'Città (Regione)':<20} | {'Ricontatto':<16} | {'Ordini €':<12} | {'Esito':<18}"
     )
-    print("-" * 130)
+    print("-" * 140)
     for r in righe:
         d = _riga_a_dict(r)
         loc = f"{d['citta']} ({d['regione']})" if d["regione"] else (d["citta"] or "-")
         ord_str = f"€ {d['totale_ordini']:.2f} ({d['numero_ordini']})" if d["totale_ordini"] > 0 else "-"
+        ric_str = d["data_ricontatto"] or "-"
         print(
             f"{d['id']:<4} | "
             f"{mappa_p.get(d['priorita'], 'NORM'):<5} | "
-            f"{d['azienda'][:23]:<24} | "
-            f"{(d['referente'] or '-')[:15]:<16} | "
-            f"{d['telefono'][:13]:<14} | "
-            f"{loc[:21]:<22} | "
+            f"{d['azienda'][:21]:<22} | "
+            f"{(d['referente'] or '-')[:14]:<15} | "
+            f"{d['telefono'][:12]:<13} | "
+            f"{loc[:19]:<20} | "
+            f"{ric_str[:15]:<16} | "
             f"{ord_str[:11]:<12} | "
-            f"{d['esito'][:19]:<20}"
+            f"{d['esito'][:17]:<18}"
         )
         if d["note"]:
             print(f"     Note: {d['note']} (Ultimo agg.: {d['data_aggiornamento']})")
-    print("-" * 130)
+    print("-" * 140)
 
 
 def chiedi_id_valido():
@@ -2005,7 +2293,7 @@ def procedura_registra_chiamata():
     print("\nQual è l'interesse per gli acquisti all'ingrosso?")
     print("1. Interessato (Ordine preso)")
     print("2. Non interessato (Rifiutato)")
-    print("3. Da richiamare (Occupato / Valuterà il listino)")
+    print("3. Da richiamare (Occupato / Appuntamento)")
     print("4. In attesa (Non ancora contattabile)")
 
     scelta_esito = input("Seleziona esito (1-4): ").strip()
@@ -2026,6 +2314,11 @@ def procedura_registra_chiamata():
         imp_str = input("Importo Ordine Confermato in € (es. 1250.00 - Invio se 0): ").strip()
         importo_ordine = _parse_importo(imp_str, default=0.0)
 
+    data_ric = input("Data/ora ricontatto YYYY-MM-DD HH:MM (Invio per nessun ricontatto): ").strip()
+    motivo_ric = ""
+    if data_ric:
+        motivo_ric = input("Motivo ricontatto (es. Appuntamento concordato): ").strip()
+
     note_call = input("Aggiungi note della chiamata (Invio per saltare): ").strip()
 
     if registra_esito_chiamata(
@@ -2035,6 +2328,8 @@ def procedura_registra_chiamata():
         note_call,
         importo_ordine=importo_ordine,
         referente=referente if referente else None,
+        data_ricontatto=data_ric,
+        motivo_ricontatto=motivo_ric,
     ):
         print("\nEsito registrato con successo!")
         print(f"-> ID {id_contatto} | Chiamato: {chiamato} | Esito: {esito}")
@@ -2160,14 +2455,11 @@ def main():
                 print(f"Totale contatti a database        : {stats['totali']}")
                 print(f"Contatti già chiamati             : {stats['chiamati']}")
                 print(f"Da contattare o richiamare        : {stats['da_contattare']}")
+                print(f"Ricontatti fissati per OGGI       : {stats['ricontatti_oggi']}")
+                print(f"Ricontatti SCADUTI da evadere     : {stats['ricontatti_scaduti']}")
                 print(f"Interessati (Ordine preso)        : {stats['interessati']}")
-                print(f"Non interessati (Rifiutati)       : {stats['rifiutati']}")
                 print(f"Totale Ordini Effettuati          : {stats['totale_ordini_effettuati']}")
                 print(f"Fatturato Totale Ordini           : € {stats['fatturato_totale_ordini']:.2f}")
-                print(f"Valore Medio Ordine               : € {stats['valore_medio_ordine']:.2f}")
-                if stats["chiamati"] > 0:
-                    tasso_conversione = (stats["interessati"] / stats["chiamati"]) * 100
-                    print(f"Tasso di conversione ordini       : {tasso_conversione:.1f}%")
                 print("=" * 50)
 
         elif scelta == "7":

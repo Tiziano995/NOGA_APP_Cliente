@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NOGA ROMA | Gestionale B2B &amp; Acquisizione Clienti all'Ingrosso</title>
-  <meta name="description" content="Piattaforma gestionale interna NOGA ROMA per l'acquisizione buyer all'ingrosso, gestione ordini B2B e analisi territoriale.">
+  <meta name="description" content="Piattaforma gestionale interna NOGA ROMA per l'acquisizione buyer all'ingrosso, calendarizzazione ricontatti in tempo reale, gestione ordini B2B e analisi territoriale.">
 
   <!-- Font ufficiale Geist & Geist Mono ispirato all'ecosistema NOGA ROMA -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -48,7 +48,7 @@
       </div>
 
       <div class="header-actions">
-        <button type="button" class="btn btn-outline" id="btnRipristinaDemo" title="Carica il dataset dimostrativo con ordini, regioni e duplicati">
+        <button type="button" class="btn btn-outline" id="btnRipristinaDemo" title="Carica il dataset dimostrativo con ordini, ricontatti, regioni e duplicati">
           <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/>
           </svg>
@@ -101,7 +101,7 @@
       <div class="kpi-card highlight-urgent" id="kpiDaChiamareCard">
         <div class="kpi-label">Coda Da Chiamare</div>
         <div class="kpi-value" id="kpiDaChiamare">0</div>
-        <div class="kpi-meta">Ordinati per priorità</div>
+        <div class="kpi-meta" id="kpiDaChiamareMeta">Ordinati per scadenza e priorità</div>
       </div>
 
       <div class="kpi-card" id="kpiChiamatiCard">
@@ -130,15 +130,26 @@
     </div>
   </section>
 
-  <!-- Contenitore Principale delle 5 Viste -->
+  <!-- Contenitore Principale delle 6 Viste -->
   <main class="main-container">
 
-    <!-- Barra Navigazione a 5 Tab + Filtri Rapidi -->
+    <!-- Barra Navigazione a 6 Tab + Filtri Rapidi -->
     <div class="view-navigation-bar">
       <nav class="nav-tabs" aria-label="Viste principali del gestionale">
         <button type="button" class="tab-btn active" data-tab="tab-coda">
           <span class="tab-title">Coda Chiamate</span>
           <span class="tab-badge" id="badgeCodaCount">0</span>
+        </button>
+
+        <button type="button" class="tab-btn" data-tab="tab-calendario">
+          <svg class="icon tab-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <span class="tab-title">Calendario</span>
+          <span class="tab-badge warning" id="badgeCalendarioCount" title="Appuntamenti di Oggi + Scaduti">0</span>
         </button>
 
         <button type="button" class="tab-btn" data-tab="tab-ordini">
@@ -197,13 +208,13 @@
     </div>
 
     <!-- ==================================================================== -->
-    <!-- TAB 1: CODA CHIAMATE (ORDINATA PER PRIORITÀ)                         -->
+    <!-- TAB 1: CODA CHIAMATE (CON SCADENZA RICONTATTI & PRIORITÀ)            -->
     <!-- ==================================================================== -->
     <section class="tab-content active" id="tab-coda" aria-label="Coda Chiamate">
       <div class="section-meta-header">
         <div>
-          <h2 class="section-title">CODA OUTREACH ORDINATA PER PRIORITÀ</h2>
-          <p class="section-subtitle">I contatti con Priorità 1 (Alta) sono sempre posizionati in cima. Clicca sul badge Priorità per cambiarla con 1 click.</p>
+          <h2 class="section-title">CODA OUTREACH CON SCADENZA RICONTATTI E PRIORITÀ</h2>
+          <p class="section-subtitle">I ricontatti scaduti o fissati per oggi appaiono automaticamente in cima alla lista, seguiti dai contatti con Priorità 1 (Alta).</p>
         </div>
         <div class="coda-summary-badge" id="codaSummaryBadge">
           0 CONTATTI DA SMALTIRE
@@ -220,6 +231,7 @@
                 <th>Referente</th>
                 <th class="col-phone">Recapito</th>
                 <th class="col-city">Città (Regione)</th>
+                <th class="col-callback">Prossimo Ricontatto</th>
                 <th>Note &amp; Contesto</th>
                 <th class="col-status">Stato Attuale</th>
                 <th class="col-actions-wide">Azioni Operatore</th>
@@ -241,7 +253,137 @@
     </section>
 
     <!-- ==================================================================== -->
-    <!-- TAB 2: ORDINI CONFERMATI (GRAFICO TOP CLIENTI + TABELLA ORDINI)      -->
+    <!-- TAB 2: CALENDARIO & AGENDA RICONTATTI IN TEMPO REALE                 -->
+    <!-- ==================================================================== -->
+    <section class="tab-content" id="tab-calendario" aria-label="Calendario e Agenda Ricontatti">
+      <div class="section-meta-header">
+        <div>
+          <h2 class="section-title">CALENDARIO INTERATTIVO &amp; AGENDA OPERATIVA RICONTATTI</h2>
+          <p class="section-subtitle">Pianificazione in tempo reale di appuntamenti telefonici, clienti non raggiungibili e follow-up ordini B2B.</p>
+        </div>
+
+        <div class="calendar-kpi-pills">
+          <div class="cal-stat-pill danger" id="calPillScaduti" title="Filtra appuntamenti scaduti o di oggi">
+            <span class="cal-stat-dot"></span>
+            <span class="cal-stat-label">Scaduti:</span>
+            <span class="cal-stat-num mono" id="calCountScaduti">0</span>
+          </div>
+          <div class="cal-stat-pill warning" id="calPillOggi" title="Filtra appuntamenti di oggi">
+            <span class="cal-stat-dot"></span>
+            <span class="cal-stat-label">Oggi:</span>
+            <span class="cal-stat-num mono" id="calCountOggi">0</span>
+          </div>
+          <div class="cal-stat-pill neutral" id="calPillFuturi" title="Mostra tutti gli appuntamenti pianificati">
+            <span class="cal-stat-dot"></span>
+            <span class="cal-stat-label">Futuri:</span>
+            <span class="cal-stat-num mono" id="calCountFuturi">0</span>
+          </div>
+          <div class="cal-stat-pill noir" id="calPillTotale">
+            <span class="cal-stat-label">Totale Agenda:</span>
+            <span class="cal-stat-num mono" id="calCountTotale">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Layout a 2 Colonne: Griglia Mensile a Sinistra + Agenda Operativa a Destra -->
+      <div class="calendar-workspace-grid">
+
+        <!-- COLONNA SINISTRA: GRIGLIA CALENDARIO MENSILE INTERATTIVA -->
+        <div class="calendar-month-panel">
+          <div class="calendar-nav-header">
+            <button type="button" class="btn btn-outline btn-xs" id="btnCalPrevMonth" aria-label="Mese precedente">
+              <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              Mese Prec.
+            </button>
+
+            <div class="calendar-current-month-wrap">
+              <h3 class="calendar-month-title" id="calMonthYearLabel">OTTOBRE 2026</h3>
+              <button type="button" class="btn-cal-today" id="btnCalToday">Vai a Oggi</button>
+            </div>
+
+            <button type="button" class="btn btn-outline btn-xs" id="btnCalNextMonth" aria-label="Mese successivo">
+              Mese Succ.
+              <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Intestazione Giorni della Settimana (Lun - Dom) -->
+          <div class="calendar-weekdays-row" role="row">
+            <div class="cal-weekday">LUN</div>
+            <div class="cal-weekday">MAR</div>
+            <div class="cal-weekday">MER</div>
+            <div class="cal-weekday">GIO</div>
+            <div class="cal-weekday">VEN</div>
+            <div class="cal-weekday">SAB</div>
+            <div class="cal-weekday">DOM</div>
+          </div>
+
+          <!-- Griglia Dinamica Giorni del Mese -->
+          <div class="calendar-days-grid" id="calendarDaysGrid" role="grid" aria-label="Giorni del mese"></div>
+
+          <!-- Legenda Stati Calendario -->
+          <div class="calendar-legend-footer">
+            <div class="legend-item">
+              <span class="legend-swatch swatch-scaduto"></span>
+              <span>Scaduto / In Ritardo</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch swatch-oggi"></span>
+              <span>Oggi (Da Chiamare)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch swatch-futuro"></span>
+              <span>Programmato Futuro</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- COLONNA DESTRA: AGENDA OPERATIVA IN TEMPO REALE -->
+        <div class="calendar-agenda-panel">
+          <div class="agenda-panel-header">
+            <div>
+              <span class="card-tag" id="agendaHeaderEyebrow">AGENDA OPERATIVA</span>
+              <h3 class="card-title" id="agendaHeaderTitle">TUTTI I RICONTATTI PIANIFICATI</h3>
+            </div>
+
+            <div class="segmented-switch" role="group" aria-label="Filtro rapido agenda">
+              <button type="button" class="seg-btn active" id="btnAgendaFilterTutti" data-cal-filter="tutti">
+                Tutti i Pianificati
+              </button>
+              <button type="button" class="seg-btn" id="btnAgendaFilterOggiScaduti" data-cal-filter="oggi_scaduti">
+                Oggi &amp; Scaduti
+              </button>
+              <button type="button" class="seg-btn" id="btnAgendaFilterGiorno" data-cal-filter="giorno">
+                <span id="labelAgendaFilterGiorno">Giorno Selezionato</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="agenda-cards-list" id="agendaCardsContainer"></div>
+
+          <div class="empty-state hidden" id="emptyAgenda">
+            <div class="empty-icon-box">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </div>
+            <h3 class="empty-title" id="emptyAgendaTitle">Nessun Appuntamento in Agenda</h3>
+            <p class="empty-desc" id="emptyAgendaDesc">Non ci sono ricontatti programmati per il filtro o la data selezionata. Clicca su "Pianifica" su qualsiasi cliente per fissare un appuntamento.</p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- TAB 3: ORDINI CONFERMATI (GRAFICO TOP CLIENTI + TABELLA ORDINI)      -->
     <!-- ==================================================================== -->
     <section class="tab-content" id="tab-ordini" aria-label="Ordini Confermati">
       <div class="section-meta-header">
@@ -309,13 +451,13 @@
     </section>
 
     <!-- ==================================================================== -->
-    <!-- TAB 3: ANAGRAFICA MASTER                                             -->
+    <!-- TAB 4: ANAGRAFICA MASTER                                             -->
     <!-- ==================================================================== -->
     <section class="tab-content" id="tab-anagrafica" aria-label="Anagrafica Master">
       <div class="section-meta-header">
         <div>
           <h2 class="section-title">REGISTRO ANAGRAFICO MASTER</h2>
-          <p class="section-subtitle">Catalogo completo dei negozi e buyer con referente, regione geografica, priorità e storico ordini.</p>
+          <p class="section-subtitle">Catalogo completo dei negozi e buyer con referente, regione geografica, priorità, ricontatti e storico ordini.</p>
         </div>
         <div class="table-actions-toolbar">
           <span class="results-counter" id="anagraficaCounter">Visualizzati: 0 contatti</span>
@@ -332,6 +474,7 @@
                 <th>Referente / Buyer</th>
                 <th class="col-phone">Telefono</th>
                 <th class="col-city">Città (Regione)</th>
+                <th class="col-callback">Prossimo Ricontatto</th>
                 <th class="col-amount">Totale Ordini (&euro;)</th>
                 <th class="col-status">Esito Commerciale</th>
                 <th class="col-date">Ultimo Contatto</th>
@@ -355,7 +498,7 @@
     </section>
 
     <!-- ==================================================================== -->
-    <!-- TAB 4: CRUSCOTTO & REPORT (FUNNEL + ANALISI CITTÀ E REGIONE)         -->
+    <!-- TAB 5: CRUSCOTTO & REPORT (FUNNEL + ANALISI CITTÀ E REGIONE)         -->
     <!-- ==================================================================== -->
     <section class="tab-content" id="tab-analitiche" aria-label="Cruscotto e Report">
       <div class="section-meta-header">
@@ -490,7 +633,7 @@
     </section>
 
     <!-- ==================================================================== -->
-    <!-- TAB 5: DUPLICATI & RIDONDANZE (BONIFICA E MERGE SCHEDE)              -->
+    <!-- TAB 6: DUPLICATI & RIDONDANZE (BONIFICA E MERGE SCHEDE)              -->
     <!-- ==================================================================== -->
     <section class="tab-content" id="tab-duplicati" aria-label="Duplicati e Ridondanze">
       <div class="section-meta-header">
@@ -521,13 +664,13 @@
   </main>
 
   <!-- ====================================================================== -->
-  <!-- MODAL 1: REGISTRA ESITO CHIAMATA (+ ORDINE IN € + CHIP NOTE RAPIDE)    -->
+  <!-- MODAL 1: REGISTRA ESITO CHIAMATA (+ ORDINE € + CALENDARIZZA RICONTATTO)-->
   <!-- ====================================================================== -->
   <div class="modal-backdrop" id="modalEsitoBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalEsitoAziendaTitle">
     <div class="modal-container modal-lg">
       <div class="modal-header">
         <div>
-          <span class="modal-eyebrow">REGISTRAZIONE ESITO TELEFONATA &amp; ORDINE</span>
+          <span class="modal-eyebrow">REGISTRAZIONE ESITO TELEFONATA, ORDINE &amp; RICONTATTO</span>
           <h3 class="modal-title" id="modalEsitoAziendaTitle">Azienda</h3>
         </div>
         <button type="button" class="modal-close-btn" id="modalEsitoCloseBtn" aria-label="Chiudi modale">&times;</button>
@@ -549,6 +692,20 @@
             <span class="info-k">Storico Ordini:</span>
             <span class="info-v mono" id="modalEsitoTotaleOrdini">&euro; 0,00</span>
           </div>
+        </div>
+
+        <!-- Pulsante Rapido Non Risponde / Occupato (1-Click) -->
+        <div class="quick-outcome-banner">
+          <span class="quick-outcome-label">Azione Rapida Telefono:</span>
+          <button type="button" class="btn btn-outline btn-xs" id="btnQuickNonRisponde">
+            <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            Non risponde / Occupato (Pianifica Ricontatto)
+          </button>
         </div>
 
         <div class="form-row">
@@ -595,6 +752,51 @@
           </div>
         </div>
 
+        <!-- Blocco Calendarizza Ricontatto / Appuntamento -->
+        <div class="schedule-callback-box" id="boxCalendarizzaEsito">
+          <div class="schedule-box-header">
+            <div class="schedule-box-title">
+              <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              <span>CALENDARIZZA RICONTATTO / APPUNTAMENTO (OPZIONALE)</span>
+            </div>
+            <button type="button" class="btn-link-clear" id="btnEsitoRimuoviRicontatto">Rimuovi Ricontatto</button>
+          </div>
+
+          <div class="schedule-quick-slots" aria-label="Pulsanti rapidi data e ora a 1 click">
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="tra_1_ora">Tra 1 Ora</button>
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="oggi_pomeriggio">Oggi Pomeriggio (15:30)</button>
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="domani_mattina">Domani Mattina (10:00)</button>
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="domani_pomeriggio">Domani Pomeriggio (16:00)</button>
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="lunedi_prossimo">Lunedì Prossimo (10:00)</button>
+          </div>
+
+          <div class="form-row schedule-inputs-row">
+            <div class="form-group flex-1">
+              <label class="form-label" for="esitoInputDataRicontatto">Data Ricontatto</label>
+              <input type="date" id="esitoInputDataRicontatto" class="form-control mono">
+            </div>
+            <div class="form-group flex-1">
+              <label class="form-label" for="esitoInputOraRicontatto">Ora Ricontatto</label>
+              <input type="time" id="esitoInputOraRicontatto" class="form-control mono">
+            </div>
+            <div class="form-group flex-2">
+              <label class="form-label" for="esitoSelectMotivoRicontatto">Motivo del Ricontatto</label>
+              <select id="esitoSelectMotivoRicontatto" class="form-control">
+                <option value="">-- Seleziona motivo ricontatto --</option>
+                <option value="Non risponde - Riprovare">Non risponde / Segreteria (Riprovare)</option>
+                <option value="Titolare assente - Richiamare">Titolare assente (Richiamare in orario concordato)</option>
+                <option value="Appuntamento concordato">Appuntamento telefonico concordato</option>
+                <option value="Follow-up nuovo ordine">Follow-up cliente acquisito (Proposta nuovo ordine)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <div class="form-group">
           <label class="form-label" for="textareaNuoveNote">Note Commerciali / Dettaglio Ordine</label>
           <div class="quick-chips-bar" aria-label="Note rapide a 1 click">
@@ -603,7 +805,7 @@
             <button type="button" class="chip-btn" data-chip="Inviare catalogo e foto su WhatsApp">+ Inviare catalogo WhatsApp</button>
             <button type="button" class="chip-btn" data-chip="Richiede listino B2B aggiornato">+ Richiede listino B2B</button>
           </div>
-          <textarea id="textareaNuoveNote" class="form-control" rows="3" placeholder="Annotazioni sulla conversazione o composizione dell'ordine..."></textarea>
+          <textarea id="textareaNuoveNote" class="form-control" rows="2" placeholder="Annotazioni sulla conversazione o composizione dell'ordine..."></textarea>
         </div>
 
         <div class="notes-history-section" id="modalEsitoStoricoWrapper">
@@ -620,7 +822,106 @@
   </div>
 
   <!-- ====================================================================== -->
-  <!-- MODAL 2: NUOVO / MODIFICA CONTATTO CLIENTE                             -->
+  <!-- MODAL 2: PIANIFICA / SPOSTA RICONTATTO RAPIDO (DA TABELLE E CALENDARIO)-->
+  <!-- ====================================================================== -->
+  <div class="modal-backdrop" id="modalPianificaBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalPianificaTitle">
+    <div class="modal-container modal-lg">
+      <div class="modal-header">
+        <div>
+          <span class="modal-eyebrow">CALENDARIZZAZIONE IN TEMPO REALE</span>
+          <h3 class="modal-title" id="modalPianificaTitle">Pianifica Ricontatto</h3>
+        </div>
+        <button type="button" class="modal-close-btn" id="modalPianificaCloseBtn" aria-label="Chiudi modale">&times;</button>
+      </div>
+
+      <form id="formPianificaRicontatto" class="modal-body">
+        <input type="hidden" id="pianificaIdContatto">
+
+        <div class="lead-quick-info">
+          <div class="info-cell">
+            <span class="info-k">Cliente:</span>
+            <span class="info-v" id="modalPianificaAzienda">-</span>
+          </div>
+          <div class="info-cell">
+            <span class="info-k">Telefono:</span>
+            <span class="info-v mono" id="modalPianificaTelefono">-</span>
+          </div>
+          <div class="info-cell">
+            <span class="info-k">Ricontatto Attuale:</span>
+            <span class="info-v mono" id="modalPianificaAttuale">Nessuno</span>
+          </div>
+        </div>
+
+        <div class="schedule-callback-box active-box">
+          <div class="schedule-box-header">
+            <div class="schedule-box-title">
+              <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              <span>SELEZIONA SLOT RAPIDO A 1 CLICK OPPURE DATA E ORA PERSONALIZZATE</span>
+            </div>
+            <button type="button" class="btn-link-clear" id="btnPianificaRimuovi">Rimuovi dal Calendario</button>
+          </div>
+
+          <div class="schedule-quick-slots" aria-label="Scelte rapide orario ricontatto">
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="tra_1_ora">Tra 1 Ora</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="oggi_pomeriggio">Oggi Pomeriggio (15:30)</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="domani_mattina">Domani Mattina (10:00)</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="domani_pomeriggio">Domani Pomeriggio (16:00)</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="lunedi_prossimo">Lunedì Prossimo (10:00)</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="piu_1_giorno">+1 Giorno (Stessa Ora)</button>
+          </div>
+
+          <div class="form-row schedule-inputs-row">
+            <div class="form-group flex-1">
+              <label class="form-label" for="pianificaInputData">Data Appuntamento *</label>
+              <input type="date" id="pianificaInputData" class="form-control mono" required>
+            </div>
+            <div class="form-group flex-1">
+              <label class="form-label" for="pianificaInputOra">Ora Appuntamento *</label>
+              <input type="time" id="pianificaInputOra" class="form-control mono" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-2">
+              <label class="form-label" for="pianificaSelectMotivo">Motivo del Ricontatto</label>
+              <select id="pianificaSelectMotivo" class="form-control">
+                <option value="Appuntamento concordato">Appuntamento telefonico concordato</option>
+                <option value="Non risponde - Riprovare">Non risponde / Segreteria (Riprovare)</option>
+                <option value="Titolare assente - Richiamare">Titolare assente (Richiamare in orario concordato)</option>
+                <option value="Follow-up nuovo ordine">Follow-up cliente acquisito (Proposta nuovo ordine)</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label class="form-label" for="pianificaSelectPriorita">Priorità</label>
+              <select id="pianificaSelectPriorita" class="form-control">
+                <option value="1">1 &mdash; Alta / Urgente</option>
+                <option value="2">2 &mdash; Normale</option>
+                <option value="3">3 &mdash; Bassa</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="pianificaInputNota">Nota Aggiuntiva per il Ricontatto (Opzionale)</label>
+          <input type="text" id="pianificaInputNota" class="form-control" placeholder="Es. Chiedere direttamente della Sig.ra Elena dopo le 15:00...">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnAnnullaPianifica">Annulla</button>
+          <button type="submit" class="btn btn-primary" id="btnSalvaPianifica">Salva in Calendario</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====================================================================== -->
+  <!-- MODAL 3: NUOVO / MODIFICA CONTATTO CLIENTE                             -->
   <!-- ====================================================================== -->
   <div class="modal-backdrop" id="modalNuovoBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalContattoTitle">
     <div class="modal-container">
@@ -694,7 +995,7 @@
   </div>
 
   <!-- ====================================================================== -->
-  <!-- MODAL 3: AGGIUNGI NUOVO ORDINE (€) NEL TEMPO                           -->
+  <!-- MODAL 4: AGGIUNGI NUOVO ORDINE (€) NEL TEMPO                           -->
   <!-- ====================================================================== -->
   <div class="modal-backdrop" id="modalNuovoOrdineBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalNuovoOrdineTitle">
     <div class="modal-container">
@@ -740,7 +1041,7 @@
   </div>
 
   <!-- ====================================================================== -->
-  <!-- MODAL 4: IMPORTAZIONE UNIVERSALE (JSON, CSV, TXT, EXCEL COPY-PASTE)    -->
+  <!-- MODAL 5: IMPORTAZIONE UNIVERSALE (JSON, CSV, TXT, EXCEL COPY-PASTE)    -->
   <!-- ====================================================================== -->
   <div class="modal-backdrop" id="modalImportBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalImportTitle">
     <div class="modal-container modal-lg">
@@ -794,7 +1095,7 @@ Boutique Verdi;Laura Verdi;06 7654321;Roma;Normale;0"></textarea>
   </div>
 
   <!-- ====================================================================== -->
-  <!-- MODAL 5: CONFERMA ELIMINAZIONE CLIENTE (SICUREZZA ANTI-ERRORE)         -->
+  <!-- MODAL 6: CONFERMA ELIMINAZIONE CLIENTE (SICUREZZA ANTI-ERRORE)         -->
   <!-- ====================================================================== -->
   <div class="modal-backdrop" id="modalEliminaBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalEliminaTitle">
     <div class="modal-container modal-sm">
@@ -854,6 +1155,14 @@ Boutique Verdi;Laura Verdi;06 7654321;Roma;Normale;0"></textarea>
           <span class="detail-v" id="drawerCitta">-</span>
         </div>
         <div class="detail-row">
+          <span class="detail-k">Prossimo Ricontatto:</span>
+          <span class="detail-v" id="drawerRicontatto">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-k">Motivo Ricontatto:</span>
+          <span class="detail-v" id="drawerMotivoRicontatto">-</span>
+        </div>
+        <div class="detail-row">
           <span class="detail-k">Stato Chiamata:</span>
           <span class="detail-v" id="drawerChiamato">-</span>
         </div>
@@ -895,6 +1204,16 @@ Boutique Verdi;Laura Verdi;06 7654321;Roma;Normale;0"></textarea>
               <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
             </svg>
             Registra Esito Telefonata
+          </button>
+
+          <button type="button" class="btn btn-outline w-100" id="drawerBtnPianifica">
+            <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            Pianifica / Sposta Ricontatto
           </button>
 
           <button type="button" class="btn btn-outline w-100" id="drawerBtnModificaContatto">

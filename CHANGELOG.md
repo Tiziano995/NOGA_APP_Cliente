@@ -52,4 +52,28 @@ Tutte le modifiche, interventi architetturali, refactoring e aggiornamenti devon
   - Verifica Design System (0 colori esadecimali cablati in `index.html` e `app.js`, `border-radius: 0px`, 0 emoji): 100% PASS.
   - Test E2E su server HTTP live (`GET /index.html`, `/style.css`, `/app.js`, `/api/contatti`, `/api/statistiche`, `/api/duplicati`, `/api/esporta-csv`): 100% PASS.
 
+---
 
+## [2026-10-17 15:21] - CALENDAR-004: Modulo di Calendarizzazione e Gestione Ricontatti in Tempo Reale (Backend + Frontend)
+
+- **ID Intervento**: `CALENDAR-004`
+- **Data / Ora**: 2026-10-17 15:21 CEST
+- **Punto di Ripristino (Rollback)**: Tag Git `v2.0-release` (pre-calendario) e `v3.0-calendar` (post-verifica)
+- **Motivazione**: Implementazione del modulo completo di Calendarizzazione e Gestione Ricontatti in Tempo Reale:
+  - Migrazione automatica SQLite per `data_ricontatto` (`%Y-%m-%d %H:%M`) e `motivo_ricontatto`.
+  - Funzioni di business logic `pianifica_ricontatto`, `ottieni_appuntamenti_calendario`, `calcola_stato_ricontatto` (`scaduto`, `oggi`, `futuro`), ordinamento intelligente della Coda Chiamate (scaduti/oggi in cima) e contatori `ricontatti_oggi`, `ricontatti_scaduti`, `totale_pianificati`.
+  - Nuovi endpoint REST `GET /api/calendario` e `POST /api/contatti/{id}/ricontatto`.
+  - Nuova Tab **Calendario** a 2 colonne (Griglia Mensile Interattiva a 7 colonne + Agenda Operativa in Tempo Reale con azioni 1-click `+1 Giorno`, `Sposta Orario`, `Segna Completato`, `Chiama / Registra Esito`).
+  - Sezione **Calendarizza Ricontatto** con slot rapidi a 1 click (`Tra 1 Ora`, `Oggi Pomeriggio 15:30`, `Domani Mattina 10:00`, `Domani Pomeriggio 16:00`, `Lunedì Prossimo 10:00`) nei modali e colonna **Prossimo Ricontatto** in Coda Chiamate, Anagrafica Master e Drawer.
+- **File Creati / Modificati**:
+  - `main.py` (aggiornato)
+  - `agenda_funzioni.py` (sincronizzato con `main.py`)
+  - `app_server.py` (aggiornato)
+  - `index.html` (aggiornato)
+  - `style.css` (aggiornato)
+  - `app.js` (aggiornato)
+  - `CHANGELOG.md` (aggiornato)
+- **Esito Quality Gates**:
+  - Verifica integrità 186 ID DOM tra `app.js` e `index.html`: 100% PASS.
+  - Verifica Design System (0 colori esadecimali cablati in `index.html` e `app.js`, 0 emoji, icone SVG accessibili): 100% PASS.
+  - Test E2E su backend SQLite e server HTTP live (`GET /api/calendario`, `POST /api/contatti/{id}/ricontatto`, `POST /api/contatti/{id}/chiamata`): 100% PASS.

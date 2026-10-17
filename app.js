@@ -1,6 +1,7 @@
 /**
  * NOGA ROMA - LOGICA INTERFACCIA GESTIONALE PRIVATO B2B
- * Comunicazione REST con app_server.py (SQLite) + fallback offline completo.
+ * Modulo Completo: Acquisizione, Ordini (€), Grafici Territoriali, Duplicati
+ * e Calendarizzazione & Gestione Ricontatti in Tempo Reale.
  * Zero librerie esterne, zero colori hardcoded, zero emoji.
  */
 
@@ -38,8 +39,22 @@ const MAPPA_CITTA_REGIONE_CLIENT = {
   aosta: "Valle d'Aosta"
 };
 
+const NOMI_MESI_IT = [
+  "GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO",
+  "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE"
+];
+
+const oggiInit = new Date();
+
 const state = {
   contatti: [],
+  calendarioAppuntamenti: [],
+  calendarioContatori: {
+    scaduti: 0,
+    oggi: 0,
+    futuri: 0,
+    totale: 0
+  },
   duplicati: [],
   statistiche: {
     totali: 0,
@@ -49,6 +64,9 @@ const state = {
     da_contattare: 0,
     da_richiamare: 0,
     in_attesa: 0,
+    ricontatti_oggi: 0,
+    ricontatti_scaduti: 0,
+    totale_pianificati: 0,
     fatturato_totale_ordini: 0.0,
     valore_medio_ordine: 0.0,
     totale_ordini_effettuati: 0,
@@ -64,6 +82,10 @@ const state = {
   filterPriorita: "",
   ordiniSortBy: "totale_ordini",
   territorioMode: "regioni",
+  calendarYear: oggiInit.getFullYear(),
+  calendarMonth: oggiInit.getMonth(), // 0-11
+  calendarSelectedDate: formatDateISO(oggiInit),
+  agendaFilterMode: "tutti", // 'tutti' | 'oggi_scaduti' | 'giorno'
   selectedContact: null,
   pendingDeleteId: null,
   isFormDirty: false,
@@ -79,7 +101,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ==============================================================================
-// 1. UTILITY DI FORMATTAZIONE E DOMINIO CLIENT
+// 1. UTILITY DI FORMATTAZIONE, DATE E DOMINIO CLIENT
 // ==============================================================================
 
 function escapeHtml(text) {
@@ -95,6 +117,99 @@ function escapeHtml(text) {
 function formatEuro(valore) {
   const num = Number(valore) || 0;
   return "€ " + num.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function formatDateISO(dateObj) {
+  return `${dateObj.getFullYear()}-${pad2(dateObj.getMonth() + 1)}-${pad2(dateObj.getDate())}`;
+}
+
+function formatTimeISO(dateObj) {
+  return `${pad2(dateObj.getHours())}:${pad2(dateObj.getMinutes())}`;
+}
+
+function formatDateIT(isoDateStr) {
+  if (!isoDateStr || isoDateStr.length < 10) return isoDateStr || "-";
+  const [y, m, d] = isoDateStr.slice(0, 10).split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function calcolaStatoRicontattoClient(dataRicontatto) {
+  const dr = String(dataRicontatto || "").trim();
+  if (!dr || dr.length < 10) return "";
+  const now = new Date();
+  const oggiStr = formatDateISO(now);
+  const adessoStr = `${oggiStr} ${formatTimeISO(now)}`;
+  const dataParte = dr.slice(0, 10);
+
+  if (dr < adessoStr) return "scaduto";
+  if (dataParte === oggiStr) return "oggi";
+  return "futuro";
+}
+
+function formattaEtichettaRicontatto(dataRicontatto, stato) {
+  const dr = String(dataRicontatto || "").trim();
+  if (!dr) return "";
+  const dataParte = dr.slice(0, 10);
+  const oraParte = dr.length >= 16 ? dr.slice(11, 16) : "09:00";
+  const [y, m, d] = dataParte.split("-");
+  const ggMm = `${d}/${m}`;
+
+  if (stato === "scaduto") {
+    return `SCADUTO · ${ggMm} ${oraParte}`;
+  }
+  if (stato === "oggi") {
+    return `OGGI · ${oraParte}`;
+  }
+  return `${ggMm}/${y.slice(2)} · ${oraParte}`;
+}
+
+function calcolaSlotRapido(slotKey, baseDateStr = "", baseTimeStr = "") {
+  const now = new Date();
+  let target = new Date(now.getTime());
+
+  if (slotKey === "tra_1_ora") {
+    target.setHours(target.getHours() + 1);
+    const min = target.getMinutes();
+    target.setMinutes(min < 30 ? 30 : 0);
+    if (min >= 30) target.setHours(target.getHours() + 1);
+    return { date: formatDateISO(target), time: formatTimeISO(target) };
+  }
+
+  if (slotKey === "oggi_pomeriggio") {
+    return { date: formatDateISO(target), time: "15:30" };
+  }
+
+  if (slotKey === "domani_mattina") {
+    target.setDate(target.getDate() + 1);
+    return { date: formatDateISO(target), time: "10:00" };
+  }
+
+  if (slotKey === "domani_pomeriggio") {
+    target.setDate(target.getDate() + 1);
+    return { date: formatDateISO(target), time: "16:00" };
+  }
+
+  if (slotKey === "lunedi_prossimo") {
+    const day = target.getDay(); // 0=Dom, 1=Lun, ...
+    const daysUntilMonday = day === 0 ? 1 : 8 - day;
+    target.setDate(target.getDate() + daysUntilMonday);
+    return { date: formatDateISO(target), time: "10:00" };
+  }
+
+  if (slotKey === "piu_1_giorno") {
+    if (baseDateStr && baseDateStr.length === 10) {
+      const [y, m, d] = baseDateStr.split("-").map(Number);
+      target = new Date(y, m - 1, d);
+    }
+    target.setDate(target.getDate() + 1);
+    return { date: formatDateISO(target), time: baseTimeStr || "10:00" };
+  }
+
+  return { date: formatDateISO(target), time: "10:00" };
 }
 
 function deduciRegioneClient(citta) {
@@ -126,11 +241,16 @@ function normalizzaAziendaClient(nome) {
 }
 
 // ==============================================================================
-// 2. CARICAMENTO DATI DA BACKEND REST API
+// 2. CARICAMENTO DATI DA BACKEND REST API (SINCRONIZZAZIONE REAL-TIME)
 // ==============================================================================
 
 async function loadData() {
-  await Promise.all([caricaContatti(), caricaStatistiche(), caricaDuplicati()]);
+  await Promise.all([
+    caricaContatti(),
+    caricaStatistiche(),
+    caricaCalendario(),
+    caricaDuplicati()
+  ]);
   renderAll();
   if (state.selectedContact && document.getElementById("detailDrawer").classList.contains("open")) {
     const aggiornato = state.contatti.find(c => c.id === state.selectedContact.id);
@@ -148,7 +268,7 @@ async function caricaContatti() {
     if (!res.ok) throw new Error("Errore API contatti");
     const json = await res.json();
     if (json.ok && Array.isArray(json.data)) {
-      state.contatti = json.data;
+      state.contatti = json.data.map(arricchisciContattoClient);
       state.isApiAvailable = true;
       aggiornaBadgeStatoDb(true);
     }
@@ -175,6 +295,25 @@ async function caricaStatistiche() {
   }
 }
 
+async function caricaCalendario() {
+  try {
+    const res = await fetch(`${API_BASE}/api/calendario`);
+    if (!res.ok) throw new Error("Errore API calendario");
+    const json = await res.json();
+    if (json.ok && Array.isArray(json.data)) {
+      state.calendarioAppuntamenti = json.data.map(arricchisciContattoClient);
+      if (json.contatori) {
+        state.calendarioContatori = json.contatori;
+      } else {
+        ricalcolaContatoriCalendarioLocali();
+      }
+      return;
+    }
+  } catch (err) {
+    ricalcolaContatoriCalendarioLocali();
+  }
+}
+
 async function caricaDuplicati() {
   try {
     const res = await fetch(`${API_BASE}/api/duplicati`);
@@ -187,6 +326,38 @@ async function caricaDuplicati() {
   } catch (err) {
     calcolaDuplicatiLocali();
   }
+}
+
+function arricchisciContattoClient(c) {
+  const dr = String(c.data_ricontatto || "").trim();
+  return {
+    ...c,
+    data_ricontatto: dr,
+    motivo_ricontatto: String(c.motivo_ricontatto || "").trim(),
+    stato_ricontatto: c.stato_ricontatto || calcolaStatoRicontattoClient(dr)
+  };
+}
+
+function ricalcolaContatoriCalendarioLocali() {
+  const pianificati = state.contatti
+    .map(arricchisciContattoClient)
+    .filter(c => c.data_ricontatto);
+
+  pianificati.sort((a, b) => {
+    const ordA = a.stato_ricontatto === "scaduto" ? 0 : a.stato_ricontatto === "oggi" ? 1 : 2;
+    const ordB = b.stato_ricontatto === "scaduto" ? 0 : b.stato_ricontatto === "oggi" ? 1 : 2;
+    if (ordA !== ordB) return ordA - ordB;
+    if (a.data_ricontatto !== b.data_ricontatto) return a.data_ricontatto.localeCompare(b.data_ricontatto);
+    return (a.priorita || 2) - (b.priorita || 2);
+  });
+
+  state.calendarioAppuntamenti = pianificati;
+  state.calendarioContatori = {
+    scaduti: pianificati.filter(x => x.stato_ricontatto === "scaduto").length,
+    oggi: pianificati.filter(x => x.stato_ricontatto === "oggi").length,
+    futuri: pianificati.filter(x => x.stato_ricontatto === "futuro").length,
+    totale: pianificati.length
+  };
 }
 
 function aggiornaBadgeStatoDb(attivo) {
@@ -202,10 +373,11 @@ function aggiornaBadgeStatoDb(attivo) {
 }
 
 function caricaDatiDefaultLocali() {
-  const salvati = localStorage.getItem("noga_crm_demo_contatti_v2");
+  const salvati = localStorage.getItem("noga_crm_demo_contatti_v3");
   if (salvati) {
     try {
-      state.contatti = JSON.parse(salvati);
+      state.contatti = JSON.parse(salvati).map(arricchisciContattoClient);
+      ricalcolaContatoriCalendarioLocali();
       calcolaDuplicatiLocali();
       calcolaStatisticheLocali();
       return;
@@ -213,6 +385,10 @@ function caricaDatiDefaultLocali() {
       // Usa dataset fallback
     }
   }
+
+  const now = new Date();
+  const ieri = new Date(now.getTime() - 86400000);
+  const domani = new Date(now.getTime() + 86400000);
 
   state.contatti = [
     {
@@ -227,44 +403,14 @@ function caricaDatiDefaultLocali() {
       esito: "Interessato (Ordine preso)",
       totale_ordini: 8050.0,
       numero_ordini: 2,
-      note: "Catena 3 boutique Milano | [2026-10-16 15:15] ORDINE CONFERMATO: € 3200.00 - Riassortimento stivaletti pelle",
-      data_aggiornamento: "2026-10-16 15:15",
-      ultimo_ordine: "2026-10-16 15:15"
+      data_ricontatto: `${formatDateISO(domani)} 11:00`,
+      motivo_ricontatto: "Follow-up nuovo ordine",
+      note: "Catena 3 boutique Milano | [ORDINE CONFERMATO] € 8050.00",
+      data_aggiornamento: `${formatDateISO(now)} 09:30`,
+      ultimo_ordine: `${formatDateISO(now)} 09:30`
     },
     {
       id: 2,
-      azienda: "Atelier del Passo Condotti",
-      referente: "Marco Valeri",
-      telefono: "06 55443322",
-      citta: "Roma",
-      regione: "Lazio",
-      priorita: 1,
-      chiamato: "Sì",
-      esito: "Interessato (Ordine preso)",
-      totale_ordini: 6400.0,
-      numero_ordini: 2,
-      note: "Showroom Piazza di Spagna | [2026-10-12 11:00] ORDINE CONFERMATO: € 6400.00 - Linea mocassini e décolleté",
-      data_aggiornamento: "2026-10-12 11:00",
-      ultimo_ordine: "2026-10-12 11:00"
-    },
-    {
-      id: 3,
-      azienda: "Toscana Shoes & Leather S.n.c.",
-      referente: "Lorenzo Guicciardini",
-      telefono: "055 2233445",
-      citta: "Firenze",
-      regione: "Toscana",
-      priorita: 1,
-      chiamato: "Sì",
-      esito: "Interessato (Ordine preso)",
-      totale_ordini: 5100.0,
-      numero_ordini: 1,
-      note: "Concept store lungarno | [2026-10-14 16:40] ORDINE CONFERMATO: € 5100.00 - Capsule artigianale NOGA",
-      data_aggiornamento: "2026-10-14 16:40",
-      ultimo_ordine: "2026-10-14 16:40"
-    },
-    {
-      id: 4,
       azienda: "Galleria Sabauda Footwear",
       referente: "Elena Ferrero",
       telefono: "011 4455667",
@@ -275,34 +421,40 @@ function caricaDatiDefaultLocali() {
       esito: "Da richiamare",
       totale_ordini: 0.0,
       numero_ordini: 0,
-      note: "Titolare interessata al listino B2B, richiamare nel pomeriggio",
-      data_aggiornamento: "2026-10-16 17:00",
-      ultimo_ordine: "2026-10-16 17:00"
+      data_ricontatto: `${formatDateISO(ieri)} 15:00`,
+      motivo_ricontatto: "Titolare assente - Richiamare",
+      note: "Titolare interessata al listino B2B, richiamare con urgenza",
+      data_aggiornamento: `${formatDateISO(ieri)} 15:00`,
+      ultimo_ordine: ""
     },
     {
-      id: 5,
-      azienda: "Brera Luxury Milano (Showroom)",
-      referente: "",
-      telefono: "02-98765431",
-      citta: "Milano",
-      regione: "Lombardia",
-      priorita: 2,
+      id: 3,
+      azienda: "Boutique Via Toledo",
+      referente: "Gennaro Esposito",
+      telefono: "081 9988776",
+      citta: "Napoli",
+      regione: "Campania",
+      priorita: 1,
       chiamato: "No",
       esito: "Da richiamare",
-      totale_ordini: 1450.0,
-      numero_ordini: 1,
-      note: "Contatto fiera MICAM",
-      data_aggiornamento: "2026-10-15 18:00",
-      ultimo_ordine: "2026-10-15 18:00"
+      totale_ordini: 0.0,
+      numero_ordini: 0,
+      data_ricontatto: `${formatDateISO(now)} 17:30`,
+      motivo_ricontatto: "Appuntamento concordato",
+      note: "Inviato catalogo WhatsApp, richiamare per conferma taglie",
+      data_aggiornamento: `${formatDateISO(now)} 10:00`,
+      ultimo_ordine: ""
     }
-  ];
+  ].map(arricchisciContattoClient);
+
   salvaStorageLocale();
+  ricalcolaContatoriCalendarioLocali();
   calcolaDuplicatiLocali();
   calcolaStatisticheLocali();
 }
 
 function salvaStorageLocale() {
-  localStorage.setItem("noga_crm_demo_contatti_v2", JSON.stringify(state.contatti));
+  localStorage.setItem("noga_crm_demo_contatti_v3", JSON.stringify(state.contatti));
 }
 
 function calcolaDuplicatiLocali() {
@@ -340,6 +492,7 @@ function calcolaDuplicatiLocali() {
 }
 
 function calcolaStatisticheLocali() {
+  ricalcolaContatoriCalendarioLocali();
   const totali = state.contatti.length;
   const chiamati = state.contatti.filter(c => c.chiamato === "Sì").length;
   const interessati = state.contatti.filter(c => c.esito === "Interessato (Ordine preso)").length;
@@ -384,6 +537,9 @@ function calcolaStatisticheLocali() {
     da_contattare,
     da_richiamare,
     in_attesa,
+    ricontatti_oggi: state.calendarioContatori.oggi,
+    ricontatti_scaduti: state.calendarioContatori.scaduti,
+    totale_pianificati: state.calendarioContatori.totale,
     fatturato_totale_ordini,
     valore_medio_ordine,
     totale_ordini_effettuati,
@@ -396,12 +552,13 @@ function calcolaStatisticheLocali() {
 }
 
 // ==============================================================================
-// 3. RENDERING INTERFACCIA E GRAFICI CSS/SVG
+// 3. RENDERING INTERFACCIA, CALENDARIO, TABELLE E GRAFICI CSS/SVG
 // ==============================================================================
 
 function renderAll() {
   renderKpis();
   renderCodaTable();
+  renderCalendarioTab();
   renderOrdiniTab();
   renderAnagraficaTable();
   renderAnalytics();
@@ -410,12 +567,22 @@ function renderAll() {
 
 function renderKpis() {
   const s = state.statistiche;
+  const cal = state.calendarioContatori;
   const ordiniClientiCount = state.contatti.filter(
     c => c.esito === "Interessato (Ordine preso)" || (Number(c.totale_ordini) || 0) > 0
   ).length;
 
   document.getElementById("kpiTotali").textContent = s.totali || 0;
   document.getElementById("kpiDaChiamare").textContent = s.da_contattare || 0;
+
+  const urgentiOggiScaduti = (cal.scaduti || 0) + (cal.oggi || 0);
+  const kpiDaChiamareMeta = document.getElementById("kpiDaChiamareMeta");
+  if (kpiDaChiamareMeta) {
+    kpiDaChiamareMeta.textContent = urgentiOggiScaduti > 0
+      ? `${urgentiOggiScaduti} ricontatti oggi/scaduti`
+      : "Ordinati per scadenza e priorità";
+  }
+
   document.getElementById("kpiChiamati").textContent = s.chiamati || 0;
   document.getElementById("kpiInteressati").textContent = ordiniClientiCount;
   document.getElementById("kpiFatturato").textContent = formatEuro(s.fatturato_totale_ordini || 0);
@@ -424,6 +591,7 @@ function renderKpis() {
   document.getElementById("kpiTasso").textContent = Number(s.tasso_conversione || 0).toFixed(1);
 
   document.getElementById("badgeCodaCount").textContent = s.da_contattare || 0;
+  document.getElementById("badgeCalendarioCount").textContent = urgentiOggiScaduti;
   document.getElementById("badgeOrdiniCount").textContent = ordiniClientiCount;
   document.getElementById("badgeTotaleCount").textContent = s.totali || 0;
   document.getElementById("badgeDuplicatiCount").textContent = state.duplicati.length;
@@ -448,13 +616,40 @@ function getFilteredContacts(mode = "tutti") {
 
     if (state.searchQuery) {
       const q = state.searchQuery.toLowerCase();
-      const campi = [c.azienda, c.referente, c.telefono, c.citta, c.regione, c.note]
-        .map(v => (v || "").toLowerCase());
+      const campi = [
+        c.azienda,
+        c.referente,
+        c.telefono,
+        c.citta,
+        c.regione,
+        c.note,
+        c.motivo_ricontatto,
+        c.data_ricontatto
+      ].map(v => (v || "").toLowerCase());
       if (!campi.some(testo => testo.includes(q))) return false;
     }
 
     return true;
   });
+
+  if (mode === "da_chiamare") {
+    return filtrati.sort((a, b) => {
+      const rank = (c) => {
+        const st = c.stato_ricontatto || calcolaStatoRicontattoClient(c.data_ricontatto);
+        if (st === "scaduto") return 0;
+        if (st === "oggi") return 1;
+        if (st === "futuro") return 2;
+        return 3;
+      };
+      const rA = rank(a);
+      const rB = rank(b);
+      if (rA !== rB) return rA - rB;
+      if (rA < 3 && a.data_ricontatto !== b.data_ricontatto) {
+        return a.data_ricontatto.localeCompare(b.data_ricontatto);
+      }
+      return (a.priorita || 2) - (b.priorita || 2) || a.id - b.id;
+    });
+  }
 
   return filtrati.sort((a, b) => (a.priorita || 2) - (b.priorita || 2) || a.id - b.id);
 }
@@ -479,6 +674,40 @@ function creaCellaLocalita(c) {
     <div class="location-stack">
       ${citta ? `<span class="city-pill">${escapeHtml(citta)}</span>` : ""}
       ${regione ? `<span class="region-tag">${escapeHtml(regione)}</span>` : ""}
+    </div>
+  `;
+}
+
+function creaCellaRicontatto(c) {
+  const dr = String(c.data_ricontatto || "").trim();
+  if (!dr) {
+    return `
+      <button type="button" class="action-icon-btn" onclick="apriModalPianifica(${c.id})" title="Pianifica ricontatto in calendario">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+        <span>Pianifica</span>
+      </button>
+    `;
+  }
+
+  const stato = c.stato_ricontatto || calcolaStatoRicontattoClient(dr) || "futuro";
+  const etichetta = formattaEtichettaRicontatto(dr, stato);
+  const motivo = c.motivo_ricontatto || "Appuntamento in agenda";
+
+  return `
+    <div>
+      <button type="button" class="callback-pill ${stato}" onclick="apriModalPianifica(${c.id})" title="Clicca per modificare o spostare l'orario">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span>${escapeHtml(etichetta)}</span>
+      </button>
+      <span class="callback-reason-sub" title="${escapeHtml(motivo)}">${escapeHtml(motivo)}</span>
     </div>
   `;
 }
@@ -534,6 +763,7 @@ function renderCodaTable() {
         </a>
       </td>
       <td>${creaCellaLocalita(c)}</td>
+      <td>${creaCellaRicontatto(c)}</td>
       <td>
         <div class="notes-snippet" title="${escapeHtml(c.note || "")}">
           ${escapeHtml(c.note || "Nessuna nota iniziale")}
@@ -544,6 +774,14 @@ function renderCodaTable() {
         <div class="row-actions">
           <button type="button" class="btn btn-primary btn-xs" onclick="apriModalEsito(${c.id})">
             Esito Chiamata
+          </button>
+          <button type="button" class="action-icon-btn" title="Pianifica / Sposta Ricontatto" onclick="apriModalPianifica(${c.id})">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
           </button>
           <button type="button" class="action-icon-btn" title="Modifica Referente / Anagrafica" onclick="apriModalModifica(${c.id})">
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -561,7 +799,255 @@ function renderCodaTable() {
   `).join("");
 }
 
-// --- TAB 2: ORDINI CONFERMATI + GRAFICO TOP CLIENTI ---
+// --- TAB 2: CALENDARIO MENSILE INTERATTIVO & AGENDA OPERATIVA ---
+function renderCalendarioTab() {
+  const cal = state.calendarioContatori;
+  document.getElementById("calCountScaduti").textContent = cal.scaduti || 0;
+  document.getElementById("calCountOggi").textContent = cal.oggi || 0;
+  document.getElementById("calCountFuturi").textContent = cal.futuri || 0;
+  document.getElementById("calCountTotale").textContent = cal.totale || 0;
+
+  renderCalendarMonthGrid();
+  renderCalendarAgendaList();
+}
+
+function renderCalendarMonthGrid() {
+  const year = state.calendarYear;
+  const month = state.calendarMonth; // 0-11
+  const label = document.getElementById("calMonthYearLabel");
+  if (label) {
+    label.textContent = `${NOMI_MESI_IT[month]} ${year}`;
+  }
+
+  const grid = document.getElementById("calendarDaysGrid");
+  if (!grid) return;
+
+  const firstDayOfMonth = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const prevMonthDays = new Date(year, month, 0).getDate();
+
+  // Lunedì = 0 ... Domenica = 6
+  const startOffset = (firstDayOfMonth.getDay() + 6) % 7;
+  const oggiStr = formatDateISO(new Date());
+
+  // Mappa appuntamenti per data YYYY-MM-DD
+  const mapByDate = {};
+  state.calendarioAppuntamenti.forEach(app => {
+    const dStr = (app.data_ricontatto || "").slice(0, 10);
+    if (!dStr) return;
+    if (!mapByDate[dStr]) mapByDate[dStr] = [];
+    mapByDate[dStr].push(app);
+  });
+
+  const cellsHtml = [];
+  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+  for (let idx = 0; idx < totalCells; idx++) {
+    let cellYear = year;
+    let cellMonth = month;
+    let dayNum = 0;
+    let isOutside = false;
+
+    if (idx < startOffset) {
+      isOutside = true;
+      dayNum = prevMonthDays - startOffset + idx + 1;
+      cellMonth = month - 1;
+      if (cellMonth < 0) {
+        cellMonth = 11;
+        cellYear--;
+      }
+    } else if (idx >= startOffset + daysInMonth) {
+      isOutside = true;
+      dayNum = idx - (startOffset + daysInMonth) + 1;
+      cellMonth = month + 1;
+      if (cellMonth > 11) {
+        cellMonth = 0;
+        cellYear++;
+      }
+    } else {
+      dayNum = idx - startOffset + 1;
+    }
+
+    const isoDate = `${cellYear}-${pad2(cellMonth + 1)}-${pad2(dayNum)}`;
+    const isToday = isoDate === oggiStr;
+    const isSelected = isoDate === state.calendarSelectedDate && state.agendaFilterMode === "giorno";
+    const dayEvents = mapByDate[isoDate] || [];
+
+    const maxVisible = 2;
+    const visibleEvents = dayEvents.slice(0, maxVisible);
+    const hiddenCount = dayEvents.length - visibleEvents.length;
+
+    const eventsHtml = visibleEvents.map(ev => {
+      const ora = (ev.data_ricontatto || "").slice(11, 16) || "09:00";
+      const st = ev.stato_ricontatto || calcolaStatoRicontattoClient(ev.data_ricontatto) || "futuro";
+      return `
+        <div class="cal-event-chip ${st}" title="${escapeHtml(ora + " - " + ev.azienda + " (" + (ev.motivo_ricontatto || "Ricontatto") + ")")}">
+          ${escapeHtml(ora)} ${escapeHtml(ev.azienda)}
+        </div>
+      `;
+    }).join("");
+
+    cellsHtml.push(`
+      <div class="cal-day-cell ${isOutside ? "outside-month" : ""} ${isToday ? "is-today" : ""} ${isSelected ? "is-selected" : ""}"
+           onclick="selezionaGiornoCalendario('${isoDate}')">
+        <div class="cal-day-top">
+          <span class="cal-day-num">${pad2(dayNum)}</span>
+          ${isToday ? '<span class="cal-today-tag">OGGI</span>' : ""}
+        </div>
+        <div class="cal-day-events">
+          ${eventsHtml}
+          ${hiddenCount > 0 ? `<div class="cal-more-count">+${hiddenCount} altri</div>` : ""}
+        </div>
+      </div>
+    `);
+  }
+
+  grid.innerHTML = cellsHtml.join("");
+}
+
+function selezionaGiornoCalendario(isoDate) {
+  state.calendarSelectedDate = isoDate;
+  const [y, m] = isoDate.split("-").map(Number);
+  if (y && m) {
+    state.calendarYear = y;
+    state.calendarMonth = m - 1;
+  }
+  impostaFiltroAgenda("giorno");
+}
+
+function impostaFiltroAgenda(mode) {
+  state.agendaFilterMode = mode;
+
+  document.getElementById("btnAgendaFilterTutti").classList.toggle("active", mode === "tutti");
+  document.getElementById("btnAgendaFilterOggiScaduti").classList.toggle("active", mode === "oggi_scaduti");
+  document.getElementById("btnAgendaFilterGiorno").classList.toggle("active", mode === "giorno");
+
+  const labelGiorno = document.getElementById("labelAgendaFilterGiorno");
+  if (labelGiorno) {
+    labelGiorno.textContent = state.calendarSelectedDate
+      ? `Giorno (${formatDateIT(state.calendarSelectedDate)})`
+      : "Giorno Selezionato";
+  }
+
+  renderCalendarioTab();
+}
+
+function renderCalendarAgendaList() {
+  const container = document.getElementById("agendaCardsContainer");
+  const emptyState = document.getElementById("emptyAgenda");
+  const headerTitle = document.getElementById("agendaHeaderTitle");
+  const headerEyebrow = document.getElementById("agendaHeaderEyebrow");
+
+  let lista = [...state.calendarioAppuntamenti];
+
+  // Applica eventuali filtri globali di ricerca / priorità
+  if (state.filterPriorita) {
+    lista = lista.filter(c => String(c.priorita || 2) === String(state.filterPriorita));
+  }
+  if (state.searchQuery) {
+    const q = state.searchQuery.toLowerCase();
+    lista = lista.filter(c => {
+      const campi = [c.azienda, c.referente, c.telefono, c.citta, c.regione, c.motivo_ricontatto, c.note]
+        .map(v => (v || "").toLowerCase());
+      return campi.some(t => t.includes(q));
+    });
+  }
+
+  if (state.agendaFilterMode === "oggi_scaduti") {
+    headerEyebrow.textContent = "PRIORITÀ IMMEDIATA";
+    headerTitle.textContent = "APPUNTAMENTI DI OGGI & SCADUTI DA RICHIAMARE";
+    lista = lista.filter(c => c.stato_ricontatto === "scaduto" || c.stato_ricontatto === "oggi");
+  } else if (state.agendaFilterMode === "giorno") {
+    headerEyebrow.textContent = "AGENDA GIORNALIERA";
+    headerTitle.textContent = `APPUNTAMENTI DEL ${formatDateIT(state.calendarSelectedDate)}`;
+    lista = lista.filter(c => (c.data_ricontatto || "").slice(0, 10) === state.calendarSelectedDate);
+  } else {
+    headerEyebrow.textContent = "AGENDA OPERATIVA COMPLETA";
+    headerTitle.textContent = `TUTTI I RICONTATTI PIANIFICATI (${lista.length})`;
+  }
+
+  if (lista.length === 0) {
+    container.innerHTML = "";
+    container.classList.add("hidden");
+    emptyState.classList.remove("hidden");
+    return;
+  }
+
+  container.classList.remove("hidden");
+  emptyState.classList.add("hidden");
+
+  container.innerHTML = lista.map(c => {
+    const st = c.stato_ricontatto || calcolaStatoRicontattoClient(c.data_ricontatto) || "futuro";
+    const dataParte = (c.data_ricontatto || "").slice(0, 10);
+    const oraParte = (c.data_ricontatto || "").slice(11, 16) || "09:00";
+
+    const badgeStatoHtml = st === "scaduto"
+      ? '<span class="badge badge-danger"><span class="badge-dot"></span> Scaduto / In Ritardo</span>'
+      : st === "oggi"
+      ? '<span class="badge badge-warning"><span class="badge-dot"></span> Oggi in Scadenza</span>'
+      : '<span class="badge badge-neutral"><span class="badge-dot"></span> Programmato</span>';
+
+    const ultimaNota = c.note
+      ? c.note.split("|").map(s => s.trim()).filter(Boolean).slice(-1)[0]
+      : "Nessuna nota aggiuntiva";
+
+    return `
+      <div class="agenda-card ${st}">
+        <div class="agenda-card-top">
+          <div class="agenda-time-group">
+            <span class="agenda-time-badge">${escapeHtml(formatDateIT(dataParte))} · ${escapeHtml(oraParte)}</span>
+            ${badgeStatoHtml}
+          </div>
+          ${creaBottonePriorita(c)}
+        </div>
+
+        <div class="agenda-company-row">
+          <span class="agenda-company-name" onclick="apriDrawer(${c.id})">
+            #${c.id} &mdash; ${escapeHtml(c.azienda)}
+          </span>
+          <a href="tel:${escapeHtml(c.telefono)}" class="phone-link">
+            <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+            </svg>
+            ${escapeHtml(c.telefono)}
+          </a>
+        </div>
+
+        <div class="agenda-meta-grid">
+          <span><strong>Referente:</strong> ${escapeHtml(c.referente || "Da rilevare")}</span>
+          <span><strong>Località:</strong> ${escapeHtml(c.citta || "-")} ${c.regione ? "(" + escapeHtml(c.regione) + ")" : ""}</span>
+          <span><strong>Ordini:</strong> <span class="mono">${formatEuro(c.totale_ordini)}</span></span>
+        </div>
+
+        <div class="agenda-reason-banner">
+          <span class="agenda-reason-title">${escapeHtml(c.motivo_ricontatto || "Appuntamento telefonico")}</span>
+          <span>${escapeHtml(ultimaNota)}</span>
+        </div>
+
+        <div class="agenda-card-actions">
+          <div class="agenda-actions-left">
+            <button type="button" class="btn btn-primary btn-xs" onclick="apriModalEsito(${c.id})">
+              Chiama / Registra Esito
+            </button>
+            <button type="button" class="btn btn-outline btn-xs" onclick="spostaRicontattoPiuUnGiorno(${c.id})" title="Posticipa di +1 giorno mantenendo lo stesso orario">
+              +1 Giorno
+            </button>
+            <button type="button" class="btn btn-outline btn-xs" onclick="apriModalPianifica(${c.id})">
+              Sposta Orario
+            </button>
+          </div>
+          <div class="agenda-actions-right">
+            <button type="button" class="btn btn-success-outline btn-xs" onclick="segnaRicontattoCompletato(${c.id})" title="Segna il ricontatto come completato e rimuovilo dall'agenda">
+              Segna Completato
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+// --- TAB 3: ORDINI CONFERMATI + GRAFICO TOP CLIENTI ---
 function renderOrdiniTab() {
   const tbody = document.getElementById("tbodyOrdini");
   const emptyState = document.getElementById("emptyOrdini");
@@ -570,7 +1056,6 @@ function renderOrdiniTab() {
 
   const list = getFilteredContacts("ordini_confermati");
 
-  // Grafico Top Clienti ordinato per Totale Ordini (€) o N° Ordini
   const chartList = [...list].sort((a, b) => {
     if (state.ordiniSortBy === "numero_ordini") {
       return (Number(b.numero_ordini) || 0) - (Number(a.numero_ordini) || 0) ||
@@ -647,6 +1132,14 @@ function renderOrdiniTab() {
             <button type="button" class="btn btn-success-outline btn-xs" onclick="apriModalNuovoOrdine(${c.id})">
               + Nuovo Ordine (&euro;)
             </button>
+            <button type="button" class="action-icon-btn" title="Pianifica Follow-up Ordine" onclick="apriModalPianifica(${c.id})">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </button>
             <button type="button" class="action-icon-btn" title="Modifica Referente / Dati" onclick="apriModalModifica(${c.id})">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
@@ -670,7 +1163,7 @@ function renderOrdiniTab() {
   }).join("");
 }
 
-// --- TAB 3: ANAGRAFICA MASTER ---
+// --- TAB 4: ANAGRAFICA MASTER ---
 function renderAnagraficaTable() {
   const tbody = document.getElementById("tbodyAnagrafica");
   const emptyState = document.getElementById("emptyAnagrafica");
@@ -709,6 +1202,7 @@ function renderAnagraficaTable() {
           <a href="tel:${escapeHtml(c.telefono)}" class="phone-link">${escapeHtml(c.telefono)}</a>
         </td>
         <td>${creaCellaLocalita(c)}</td>
+        <td>${creaCellaRicontatto(c)}</td>
         <td class="amount-cell ${tot > 0 ? "has-orders" : ""}">
           ${tot > 0 ? `${formatEuro(tot)} <span class="text-xs text-muted">(${num})</span>` : "&mdash;"}
         </td>
@@ -719,6 +1213,14 @@ function renderAnagraficaTable() {
             <button type="button" class="action-icon-btn" title="Registra Chiamata" onclick="apriModalEsito(${c.id})">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+              </svg>
+            </button>
+            <button type="button" class="action-icon-btn" title="Pianifica Ricontatto" onclick="apriModalPianifica(${c.id})">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
               </svg>
             </button>
             <button type="button" class="action-icon-btn" title="+ Nuovo Ordine (€)" onclick="apriModalNuovoOrdine(${c.id})">&euro;+</button>
@@ -745,7 +1247,7 @@ function renderAnagraficaTable() {
   }).join("");
 }
 
-// --- TAB 4: CRUSCOTTO & ANALISI TERRITORIALE PER CITTÀ E REGIONE ---
+// --- TAB 5: CRUSCOTTO & ANALISI TERRITORIALE PER CITTÀ E REGIONE ---
 function renderAnalytics() {
   const s = state.statistiche;
   document.getElementById("funnelTotali").textContent = s.totali || 0;
@@ -821,7 +1323,7 @@ function renderTerritorialChart() {
   }).join("");
 }
 
-// --- TAB 5: DUPLICATI & RIDONDANZE ---
+// --- TAB 6: DUPLICATI & RIDONDANZE ---
 function renderDuplicatiTab() {
   const wrapper = document.getElementById("duplicatiGroupsContainer");
   const emptyCard = document.getElementById("emptyDuplicatiCard");
@@ -896,7 +1398,7 @@ function renderDuplicatiTab() {
 }
 
 // ==============================================================================
-// 4. AZIONI OPERATIVE: PRIORITÀ 1-CLICK, ORDINI (€), CRUD, IMPORT/EXPORT, MERGE
+// 4. AZIONI OPERATIVE: PRIORITÀ, ESITO + CALENDARIO, ORDINI (€), CRUD, MERGE
 // ==============================================================================
 
 async function ciclaPriorita(idContatto, prioritaAttuale) {
@@ -920,6 +1422,129 @@ async function ciclaPriorita(idContatto, prioritaAttuale) {
       c.priorita = prossima;
       salvaStorageLocale();
       renderAll();
+    }
+  }
+}
+
+// --- MODALE RAPIDO PIANIFICA / SPOSTA RICONTATTO ---
+function apriModalPianifica(idContatto) {
+  const c = state.contatti.find(x => x.id === idContatto);
+  if (!c) return;
+
+  state.selectedContact = c;
+  document.getElementById("pianificaIdContatto").value = c.id;
+  document.getElementById("modalPianificaAzienda").textContent = c.azienda;
+  document.getElementById("modalPianificaTelefono").textContent = c.telefono;
+  document.getElementById("modalPianificaAttuale").textContent = c.data_ricontatto
+    ? `${c.data_ricontatto} (${c.motivo_ricontatto || "Pianificato"})`
+    : "Nessuno programmato";
+
+  const dr = String(c.data_ricontatto || "").trim();
+  if (dr.length >= 16) {
+    document.getElementById("pianificaInputData").value = dr.slice(0, 10);
+    document.getElementById("pianificaInputOra").value = dr.slice(11, 16);
+  } else {
+    const def = calcolaSlotRapido("domani_mattina");
+    document.getElementById("pianificaInputData").value = def.date;
+    document.getElementById("pianificaInputOra").value = def.time;
+  }
+
+  document.getElementById("pianificaSelectMotivo").value =
+    c.motivo_ricontatto || (c.esito === "Interessato (Ordine preso)" ? "Follow-up nuovo ordine" : "Appuntamento concordato");
+  document.getElementById("pianificaSelectPriorita").value = String(c.priorita || 1);
+  document.getElementById("pianificaInputNota").value = "";
+
+  document.getElementById("modalPianificaBackdrop").classList.add("open");
+}
+
+function chiudiModalPianifica() {
+  document.getElementById("modalPianificaBackdrop").classList.remove("open");
+}
+
+async function salvaFormPianifica(e) {
+  e.preventDefault();
+  const idContatto = parseInt(document.getElementById("pianificaIdContatto").value, 10);
+  const dataVal = document.getElementById("pianificaInputData").value.trim();
+  const oraVal = document.getElementById("pianificaInputOra").value.trim() || "10:00";
+  const motivo = document.getElementById("pianificaSelectMotivo").value;
+  const priorita = parseInt(document.getElementById("pianificaSelectPriorita").value, 10) || 2;
+  const notaExtra = document.getElementById("pianificaInputNota").value.trim();
+
+  if (!dataVal) {
+    showToast("Seleziona una data valida per il ricontatto", "error");
+    return;
+  }
+
+  const dataRicontattoCompleta = `${dataVal} ${oraVal}`;
+  await inviaPianificazioneBackend(idContatto, dataRicontattoCompleta, motivo, priorita, notaExtra);
+  chiudiModalPianifica();
+}
+
+async function rimuoviRicontattoDaModalePianifica() {
+  const idContatto = parseInt(document.getElementById("pianificaIdContatto").value, 10);
+  if (!idContatto) return;
+  await inviaPianificazioneBackend(idContatto, "", "", null, "Ricontatto rimosso manualmente");
+  chiudiModalPianifica();
+}
+
+async function spostaRicontattoPiuUnGiorno(idContatto) {
+  const c = state.contatti.find(x => x.id === idContatto);
+  if (!c) return;
+  const dr = String(c.data_ricontatto || "").trim();
+  const baseDate = dr.length >= 10 ? dr.slice(0, 10) : formatDateISO(new Date());
+  const baseTime = dr.length >= 16 ? dr.slice(11, 16) : "10:00";
+  const nuovoSlot = calcolaSlotRapido("piu_1_giorno", baseDate, baseTime);
+
+  await inviaPianificazioneBackend(
+    idContatto,
+    `${nuovoSlot.date} ${nuovoSlot.time}`,
+    c.motivo_ricontatto || "Appuntamento posticipato (+1g)",
+    c.priorita || 1,
+    "Posticipato di +1 giorno"
+  );
+}
+
+async function segnaRicontattoCompletato(idContatto) {
+  await inviaPianificazioneBackend(idContatto, "", "", null, "Appuntamento in agenda completato");
+}
+
+async function inviaPianificazioneBackend(idContatto, dataRicontatto, motivoRicontatto, priorita, notaExtra) {
+  try {
+    const res = await fetch(`${API_BASE}/api/contatti/${idContatto}/ricontatto`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        data_ricontatto: dataRicontatto,
+        motivo_ricontatto: motivoRicontatto,
+        priorita,
+        nota_extra: notaExtra
+      })
+    });
+    const json = await res.json();
+    if (json.ok) {
+      if (dataRicontatto) {
+        showToast(`Appuntamento fissato per ${dataRicontatto}`, "success");
+      } else {
+        showToast("Appuntamento completato / rimosso dal calendario", "success");
+      }
+      await loadData();
+      return;
+    }
+    showToast(json.errore || "Errore salvataggio ricontatto", "error");
+  } catch (err) {
+    const c = state.contatti.find(x => x.id === idContatto);
+    if (c) {
+      c.data_ricontatto = dataRicontatto;
+      c.motivo_ricontatto = dataRicontatto ? motivoRicontatto : "";
+      c.stato_ricontatto = calcolaStatoRicontattoClient(dataRicontatto);
+      if (dataRicontatto && c.esito !== "Interessato (Ordine preso)") {
+        c.esito = "Da richiamare";
+      }
+      if (priorita) c.priorita = priorita;
+      salvaStorageLocale();
+      calcolaStatisticheLocali();
+      renderAll();
+      showToast("Calendario aggiornato in locale", "success");
     }
   }
 }
@@ -1028,7 +1653,7 @@ async function salvaFormContatto(e) {
   }
 }
 
-// --- MODALE REGISTRA ESITO CHIAMATA ---
+// --- MODALE REGISTRA ESITO CHIAMATA (+ ORDINE € + CALENDARIZZA RICONTATTO) ---
 function apriModalEsito(idContatto) {
   const c = state.contatti.find(x => x.id === idContatto);
   if (!c) return;
@@ -1050,8 +1675,30 @@ function apriModalEsito(idContatto) {
   document.getElementById("textareaNuoveNote").value = "";
   document.getElementById("modalEsitoStoricoNote").textContent = c.note || "Nessuna nota precedente.";
 
+  // Campi ricontatto (vuoti di default così se l'operatore conclude senza fissare una nuova data, il vecchio appuntamento si chiude)
+  document.getElementById("esitoInputDataRicontatto").value = "";
+  document.getElementById("esitoInputOraRicontatto").value = "";
+  document.getElementById("esitoSelectMotivoRicontatto").value = "";
+  document.getElementById("boxCalendarizzaEsito").classList.remove("highlight-schedule");
+
   aggiornaVisibilitaBoxOrdineEsito();
   document.getElementById("modalEsitoBackdrop").classList.add("open");
+}
+
+function impostaEsitoRapidoNonRisponde() {
+  document.getElementById("selectChiamato").value = "No";
+  document.getElementById("selectEsito").value = "Da richiamare";
+  document.getElementById("esitoSelectMotivoRicontatto").value = "Non risponde - Riprovare";
+  aggiornaVisibilitaBoxOrdineEsito();
+
+  const slot = calcolaSlotRapido("tra_1_ora");
+  document.getElementById("esitoInputDataRicontatto").value = slot.date;
+  document.getElementById("esitoInputOraRicontatto").value = slot.time;
+
+  const box = document.getElementById("boxCalendarizzaEsito");
+  box.classList.add("highlight-schedule");
+  document.getElementById("esitoInputDataRicontatto").focus();
+  showToast("Impostato 'Non risponde': verifica o scegli l'orario di ricontatto", "success");
 }
 
 function aggiornaVisibilitaBoxOrdineEsito() {
@@ -1078,6 +1725,11 @@ async function salvaEsitoChiamata(e) {
   const importoOrdine = parseFloat(document.getElementById("inputImportoOrdineChiamata").value) || 0.0;
   const nuoveNote = document.getElementById("textareaNuoveNote").value.trim();
 
+  const dataRic = document.getElementById("esitoInputDataRicontatto").value.trim();
+  const oraRic = document.getElementById("esitoInputOraRicontatto").value.trim() || "10:00";
+  const motivoRic = document.getElementById("esitoSelectMotivoRicontatto").value.trim();
+  const dataRicontattoCompleta = dataRic ? `${dataRic} ${oraRic}` : "";
+
   try {
     const res = await fetch(`${API_BASE}/api/contatti/${idContatto}/chiamata`, {
       method: "POST",
@@ -1088,12 +1740,18 @@ async function salvaEsitoChiamata(e) {
         note: nuoveNote,
         importo_ordine: esito === "Interessato (Ordine preso)" ? importoOrdine : 0.0,
         referente,
-        priorita
+        priorita,
+        data_ricontatto: dataRicontattoCompleta,
+        motivo_ricontatto: dataRicontattoCompleta ? (motivoRic || "Appuntamento concordato") : ""
       })
     });
     const json = await res.json();
     if (json.ok) {
-      showToast("Esito telefonata salvato con successo", "success");
+      if (dataRicontattoCompleta) {
+        showToast(`Esito salvato e ricontatto fissato per ${dataRicontattoCompleta}`, "success");
+      } else {
+        showToast("Esito telefonata salvato con successo", "success");
+      }
       chiudiModalEsito();
       await loadData();
     } else {
@@ -1217,7 +1875,7 @@ async function eseguiMergeContatti(idPrincipale, idSecondario) {
   }
 }
 
-// --- SLIDE-OVER DRAWER CON STORICO ORDINI (€) E TIMELINE NOTE ---
+// --- SLIDE-OVER DRAWER CON RICONTATTO, STORICO ORDINI (€) E TIMELINE NOTE ---
 async function apriDrawer(idContatto) {
   const c = state.contatti.find(item => item.id === idContatto);
   if (!c) return;
@@ -1231,6 +1889,11 @@ async function apriDrawer(idContatto) {
   const reg = c.regione || deduciRegioneClient(c.citta);
   document.getElementById("drawerCitta").textContent =
     c.citta ? `${c.citta}${reg ? " (" + reg + ")" : ""}` : "Non specificata";
+
+  document.getElementById("drawerRicontatto").innerHTML = creaCellaRicontatto(c);
+  document.getElementById("drawerMotivoRicontatto").textContent =
+    c.motivo_ricontatto || (c.data_ricontatto ? "Appuntamento concordato" : "Nessuno");
+
   document.getElementById("drawerChiamato").textContent = c.chiamato;
   document.getElementById("drawerEsito").innerHTML = creaBadgeEsito(c.esito);
   document.getElementById("drawerTotaleOrdini").textContent =
@@ -1391,10 +2054,11 @@ function esportaFileCsv() {
     showToast("Download CSV compatibile Excel avviato", "success");
     return;
   }
-  const headers = ["ID", "Priorita", "Azienda", "Referente", "Telefono", "Citta", "Regione", "Chiamato", "Esito", "Numero_Ordini", "Totale_Ordini_EUR"];
+  const headers = ["ID", "Priorita", "Azienda", "Referente", "Telefono", "Citta", "Regione", "Chiamato", "Esito", "Data_Ricontatto", "Motivo_Ricontatto", "Numero_Ordini", "Totale_Ordini_EUR"];
   const rows = state.contatti.map(c => [
     c.id, c.priorita, `"${(c.azienda || "").replace(/"/g, '""')}"`, `"${(c.referente || "").replace(/"/g, '""')}"`,
     `"${c.telefono || ""}"`, `"${c.citta || ""}"`, `"${c.regione || ""}"`, c.chiamato, `"${c.esito || ""}"`,
+    `"${c.data_ricontatto || ""}"`, `"${(c.motivo_ricontatto || "").replace(/"/g, '""')}"`,
     c.numero_ordini || 0, String(c.totale_ordini || 0).replace(".", ",")
   ].join(";"));
   const csv = "\ufeff" + headers.join(";") + "\n" + rows.join("\n");
@@ -1413,12 +2077,12 @@ async function ripristinaDemoRicca() {
     const res = await fetch(`${API_BASE}/api/ripristina-demo`, { method: "POST" });
     const json = await res.json();
     if (json.ok) {
-      showToast("Dataset demo ricco (con ordini, regioni e duplicati) caricato", "success");
+      showToast("Dataset demo completo (ordini, ricontatti in calendario e duplicati) caricato", "success");
       await loadData();
       return;
     }
   } catch (err) {
-    localStorage.removeItem("noga_crm_demo_contatti_v2");
+    localStorage.removeItem("noga_crm_demo_contatti_v3");
     caricaDatiDefaultLocali();
     renderAll();
     showToast("Dataset demo ripristinato in locale", "success");
@@ -1475,7 +2139,7 @@ function setupEventListeners() {
 
   document.getElementById("btnRefresh").addEventListener("click", () => {
     loadData();
-    showToast("Sincronizzazione database completata", "success");
+    showToast("Sincronizzazione database e calendario completata", "success");
   });
 
   // Pulsanti Header e Top Announcement Bar
@@ -1490,6 +2154,45 @@ function setupEventListeners() {
 
   document.getElementById("btnEsportaCsv").addEventListener("click", esportaFileCsv);
   document.getElementById("topBtnEsportaCsv").addEventListener("click", esportaFileCsv);
+
+  // Navigazione Mese Calendario (< Mese Prec. | Vai a Oggi | Mese Succ. >)
+  document.getElementById("btnCalPrevMonth").addEventListener("click", () => {
+    state.calendarMonth--;
+    if (state.calendarMonth < 0) {
+      state.calendarMonth = 11;
+      state.calendarYear--;
+    }
+    renderCalendarioTab();
+  });
+
+  document.getElementById("btnCalNextMonth").addEventListener("click", () => {
+    state.calendarMonth++;
+    if (state.calendarMonth > 11) {
+      state.calendarMonth = 0;
+      state.calendarYear++;
+    }
+    renderCalendarioTab();
+  });
+
+  document.getElementById("btnCalToday").addEventListener("click", () => {
+    const oggi = new Date();
+    state.calendarYear = oggi.getFullYear();
+    state.calendarMonth = oggi.getMonth();
+    state.calendarSelectedDate = formatDateISO(oggi);
+    impostaFiltroAgenda("giorno");
+  });
+
+  // Filtri rapidi Agenda Operativa
+  document.getElementById("btnAgendaFilterTutti").addEventListener("click", () => impostaFiltroAgenda("tutti"));
+  document.getElementById("btnAgendaFilterOggiScaduti").addEventListener("click", () => impostaFiltroAgenda("oggi_scaduti"));
+  document.getElementById("btnAgendaFilterGiorno").addEventListener("click", () => impostaFiltroAgenda("giorno"));
+
+  document.getElementById("calPillScaduti").addEventListener("click", () => impostaFiltroAgenda("oggi_scaduti"));
+  document.getElementById("calPillOggi").addEventListener("click", () => {
+    state.calendarSelectedDate = formatDateISO(new Date());
+    impostaFiltroAgenda("giorno");
+  });
+  document.getElementById("calPillFuturi").addEventListener("click", () => impostaFiltroAgenda("tutti"));
 
   // Switch ordinamento grafico Top Clienti (Tab Ordini Confermati)
   document.getElementById("btnOrdiniSortEuro").addEventListener("click", () => {
@@ -1542,11 +2245,50 @@ function setupEventListeners() {
     }
   });
 
-  // Modale Registra Esito Chiamata + Chip Note Rapide
+  // Modale Registra Esito Chiamata + Pulsante Rapido Non Risponde + Slot 1-Click + Chip Note Rapide
   document.getElementById("modalEsitoCloseBtn").addEventListener("click", chiudiModalEsito);
   document.getElementById("btnAnnullaEsito").addEventListener("click", chiudiModalEsito);
   document.getElementById("selectEsito").addEventListener("change", aggiornaVisibilitaBoxOrdineEsito);
+  document.getElementById("btnQuickNonRisponde").addEventListener("click", impostaEsitoRapidoNonRisponde);
+  document.getElementById("btnEsitoRimuoviRicontatto").addEventListener("click", () => {
+    document.getElementById("esitoInputDataRicontatto").value = "";
+    document.getElementById("esitoInputOraRicontatto").value = "";
+    document.getElementById("esitoSelectMotivoRicontatto").value = "";
+  });
   document.getElementById("formRegistraEsito").addEventListener("submit", salvaEsitoChiamata);
+
+  // Modale Pianifica Ricontatto Rapido
+  document.getElementById("modalPianificaCloseBtn").addEventListener("click", chiudiModalPianifica);
+  document.getElementById("btnAnnullaPianifica").addEventListener("click", chiudiModalPianifica);
+  document.getElementById("btnPianificaRimuovi").addEventListener("click", rimuoviRicontattoDaModalePianifica);
+  document.getElementById("formPianificaRicontatto").addEventListener("submit", salvaFormPianifica);
+
+  // Slot Rapidi 1-Click (Condivisi tra Modale Esito e Modale Pianifica)
+  document.querySelectorAll(".slot-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const prefix = btn.dataset.targetPrefix; // 'esito' | 'pianifica'
+      const slotKey = btn.dataset.quickSlot;
+      const inputData = document.getElementById(prefix === "esito" ? "esitoInputDataRicontatto" : "pianificaInputData");
+      const inputOra = document.getElementById(prefix === "esito" ? "esitoInputOraRicontatto" : "pianificaInputOra");
+
+      const res = calcolaSlotRapido(slotKey, inputData.value, inputOra.value);
+      inputData.value = res.date;
+      inputOra.value = res.time;
+
+      if (prefix === "esito") {
+        const motivoSel = document.getElementById("esitoSelectMotivoRicontatto");
+        if (!motivoSel.value) {
+          motivoSel.value = document.getElementById("selectChiamato").value === "No"
+            ? "Non risponde - Riprovare"
+            : "Appuntamento concordato";
+        }
+        if (document.getElementById("selectEsito").value !== "Interessato (Ordine preso)") {
+          document.getElementById("selectEsito").value = "Da richiamare";
+          aggiornaVisibilitaBoxOrdineEsito();
+        }
+      }
+    });
+  });
 
   document.querySelectorAll(".chip-btn").forEach(chip => {
     chip.addEventListener("click", () => {
@@ -1599,65 +2341,70 @@ function setupEventListeners() {
   document.getElementById("drawerCloseBtn").addEventListener("click", chiudiDrawer);
   document.getElementById("drawerBackdrop").addEventListener("click", chiudiDrawer);
 
-  document.getElementById("drawerBtnNuovoOrdine").addEventListener("click", () => {
-    if (state.selectedContact) {
-      apriModalNuovoOrdine(state.selectedContact.id);
-    }
+  document.getElementById("drawerBtnRegistraChiamata").addEventListener("click", () => {
+    if (!state.selectedContact) return;
+    const id = state.selectedContact.id;
+    chiudiDrawer();
+    apriModalEsito(id);
   });
 
-  document.getElementById("drawerBtnRegistraChiamata").addEventListener("click", () => {
-    if (state.selectedContact) {
-      chiudiDrawer();
-      apriModalEsito(state.selectedContact.id);
-    }
+  document.getElementById("drawerBtnPianifica").addEventListener("click", () => {
+    if (!state.selectedContact) return;
+    const id = state.selectedContact.id;
+    chiudiDrawer();
+    apriModalPianifica(id);
   });
 
   document.getElementById("drawerBtnModificaContatto").addEventListener("click", () => {
-    if (state.selectedContact) {
-      chiudiDrawer();
-      apriModalModifica(state.selectedContact.id);
-    }
+    if (!state.selectedContact) return;
+    const id = state.selectedContact.id;
+    chiudiDrawer();
+    apriModalModifica(id);
+  });
+
+  document.getElementById("drawerBtnNuovoOrdine").addEventListener("click", () => {
+    if (!state.selectedContact) return;
+    const id = state.selectedContact.id;
+    chiudiDrawer();
+    apriModalNuovoOrdine(id);
   });
 
   document.getElementById("drawerBtnElimina").addEventListener("click", () => {
-    if (state.selectedContact) {
-      richiediEliminazione(state.selectedContact.id);
-    }
+    if (!state.selectedContact) return;
+    const id = state.selectedContact.id;
+    richiediEliminazione(id);
   });
 
-  // Navigazione da tastiera (ESC chiude modali/drawer, / attiva ricerca)
+  // Chiusura modali e drawer tramite tasto ESC (Accessibilità WCAG AA)
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      chiudiModalNuovo(false);
       chiudiModalEsito();
+      chiudiModalPianifica();
+      chiudiModalNuovo(false);
       chiudiModalNuovoOrdine();
       chiudiModalImport();
       chiudiModalElimina();
       chiudiDrawer();
-    } else if (
-      e.key === "/" &&
-      document.activeElement.tagName !== "INPUT" &&
-      document.activeElement.tagName !== "TEXTAREA" &&
-      document.activeElement.tagName !== "SELECT"
-    ) {
-      e.preventDefault();
-      document.getElementById("searchInput").focus();
     }
   });
 }
 
+// ==============================================================================
+// 6. SISTEMA DI NOTIFICA TOAST
+// ==============================================================================
+
 function showToast(message, type = "info") {
   const container = document.getElementById("toastContainer");
+  if (!container) return;
+
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
-  toast.innerHTML = `
-    <span>${escapeHtml(message)}</span>
-    <button type="button" class="modal-close-btn" aria-label="Chiudi notifica">&times;</button>
-  `;
-  toast.querySelector("button").addEventListener("click", () => toast.remove());
+  toast.innerHTML = `<span>${escapeHtml(message)}</span>`;
   container.appendChild(toast);
 
   setTimeout(() => {
-    if (toast.parentElement) toast.remove();
-  }, 3600);
+    toast.style.opacity = "0";
+    toast.style.transition = "opacity 0.25s ease";
+    setTimeout(() => toast.remove(), 250);
+  }, 3400);
 }

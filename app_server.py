@@ -83,6 +83,36 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
             self._send_json({"ok": True, "data": contatti, "totale": len(contatti)})
             return
 
+        elif path == "/api/calendario":
+            mese = query_params.get("mese", [None])[0]
+            anno = query_params.get("anno", [None])[0]
+            data_specifica = query_params.get("data", [None])[0]
+
+            tutti_app = main.ottieni_appuntamenti_calendario()
+            contatori = {
+                "scaduti": sum(1 for a in tutti_app if a["stato_ricontatto"] == "scaduto"),
+                "oggi": sum(1 for a in tutti_app if a["stato_ricontatto"] == "oggi"),
+                "futuri": sum(1 for a in tutti_app if a["stato_ricontatto"] == "futuro"),
+                "totale": len(tutti_app),
+            }
+
+            if mese or anno or data_specifica:
+                filtrati = main.ottieni_appuntamenti_calendario(
+                    mese=mese,
+                    anno=anno,
+                    data_specifica=data_specifica,
+                )
+            else:
+                filtrati = tutti_app
+
+            self._send_json({
+                "ok": True,
+                "data": filtrati,
+                "totale": len(filtrati),
+                "contatori": contatori,
+            })
+            return
+
         elif path.startswith("/api/contatti/") and path.endswith("/ordini"):
             parti = path.strip("/").split("/")
             try:
@@ -113,6 +143,9 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                     "fatturato_totale_ordini": 0.0,
                     "valore_medio_ordine": 0.0,
                     "totale_ordini_effettuati": 0,
+                    "ricontatti_oggi": 0,
+                    "ricontatti_scaduti": 0,
+                    "totale_pianificati": 0,
                     "analisi_regioni": [],
                     "analisi_citta": [],
                     "gruppi_duplicati": 0,
@@ -169,6 +202,8 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
             note = str(payload.get("note", "")).strip()
             priorita = payload.get("priorita", 2)
             totale_ordini = payload.get("totale_ordini", 0.0)
+            data_ricontatto = str(payload.get("data_ricontatto", "")).strip()
+            motivo_ricontatto = str(payload.get("motivo_ricontatto", "")).strip()
 
             if not azienda or not telefono:
                 self._send_json({"ok": False, "errore": "Azienda e Telefono sono obbligatori."}, 400)
@@ -187,6 +222,8 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                 regione=regione,
                 priorita=priorita,
                 totale_ordini=totale_ordini,
+                data_ricontatto=data_ricontatto,
+                motivo_ricontatto=motivo_ricontatto,
             )
             if nuovo_id:
                 self._send_json({"ok": True, "id": nuovo_id, "messaggio": "Contatto creato con successo."}, 201)
@@ -194,7 +231,7 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "errore": "Errore durante il salvataggio nel database."}, 500)
             return
 
-        # 2. Registrazione chiamata + eventuale ordine in € + referente + priorità
+        # 2. Registrazione chiamata + eventuale ordine (€) + eventuale calendarizzazione ricontatto
         elif path.startswith("/api/contatti/") and path.endswith("/chiamata"):
             parti = path.strip("/").split("/")
             try:
@@ -213,6 +250,8 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
             importo_ordine = payload.get("importo_ordine", 0.0)
             referente = payload.get("referente", None)
             priorita = payload.get("priorita", None)
+            data_ricontatto = payload.get("data_ricontatto", "")
+            motivo_ricontatto = payload.get("motivo_ricontatto", "")
 
             esito_valido = [
                 "In attesa",
@@ -232,14 +271,52 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                 importo_ordine=importo_ordine,
                 referente=referente,
                 priorita=priorita,
+                data_ricontatto=data_ricontatto,
+                motivo_ricontatto=motivo_ricontatto,
             )
             if ok:
-                self._send_json({"ok": True, "messaggio": "Esito chiamata aggiornato con successo."})
+                self._send_json({"ok": True, "messaggio": "Esito chiamata e calendario aggiornati con successo."})
             else:
                 self._send_json({"ok": False, "errore": "Impossibile aggiornare l'esito."}, 500)
             return
 
-        # 3. Aggiunta nuovo ordine nel tempo per un contatto esistente
+        # 3. Pianificazione / Spostamento / Rimozione rapida Ricontatto in tempo reale
+        elif path.startswith("/api/contatti/") and path.endswith("/ricontatto"):
+            parti = path.strip("/").split("/")
+            try:
+                id_contatto = int(parti[2])
+            except (IndexError, ValueError):
+                self._send_json({"ok": False, "errore": "ID contatto non valido"}, 400)
+                return
+
+            if not main.id_esiste(id_contatto):
+                self._send_json({"ok": False, "errore": "Contatto non trovato."}, 404)
+                return
+
+            data_ricontatto = str(payload.get("data_ricontatto", "")).strip()
+            motivo_ricontatto = str(payload.get("motivo_ricontatto", "")).strip()
+            priorita = payload.get("priorita", None)
+            nota_extra = str(payload.get("nota", payload.get("nota_extra", ""))).strip()
+
+            ok = main.pianifica_ricontatto(
+                contatto_id=id_contatto,
+                data_ricontatto=data_ricontatto,
+                motivo_ricontatto=motivo_ricontatto,
+                priorita=priorita,
+                nota_extra=nota_extra,
+            )
+            if ok:
+                msg = (
+                    f"Ricontatto programmato per {data_ricontatto}."
+                    if data_ricontatto
+                    else "Appuntamento di ricontatto completato / rimosso."
+                )
+                self._send_json({"ok": True, "messaggio": msg})
+            else:
+                self._send_json({"ok": False, "errore": "Impossibile aggiornare il ricontatto."}, 500)
+            return
+
+        # 4. Aggiunta nuovo ordine nel tempo per un contatto esistente
         elif path.startswith("/api/contatti/") and path.endswith("/ordini"):
             parti = path.strip("/").split("/")
             try:
@@ -266,7 +343,7 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "errore": "Importo ordine non valido (deve essere > 0)."}, 400)
             return
 
-        # 4. Modifica rapida priorità (1 = Alta, 2 = Normale, 3 = Bassa)
+        # 5. Modifica rapida priorità (1 = Alta, 2 = Normale, 3 = Bassa)
         elif path.startswith("/api/contatti/") and path.endswith("/priorita"):
             parti = path.strip("/").split("/")
             try:
@@ -286,7 +363,7 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "errore": "Valore priorità non valido (ammessi: 1, 2, 3)."}, 400)
             return
 
-        # 5. Importazione universale multi-formato (JSON, CSV, TSV/Excel, TXT)
+        # 6. Importazione universale multi-formato (JSON, CSV, TSV/Excel, TXT)
         elif path in ("/api/importa", "/api/importa-json"):
             contatti = payload.get("contatti")
             contenuto_testo = payload.get("contenuto_testo", payload.get("testo", ""))
@@ -323,7 +400,7 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                 )
                 return
 
-        # 6. Fusione (Merge) di due schede contatto duplicate
+        # 7. Fusione (Merge) di due schede contatto duplicate
         elif path == "/api/duplicati/unisci":
             try:
                 id_principale = int(payload.get("id_principale"))
@@ -345,7 +422,7 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "errore": "Impossibile completare la fusione dei contatti."}, 404)
             return
 
-        # 7. Ripristino dati demo ricchi (con ordini multipli, regioni e duplicati di test)
+        # 8. Ripristino dati demo ricchi (con ordini multipli, regioni, appuntamenti e duplicati)
         elif path == "/api/ripristina-demo":
             res = main.ripristina_dati_demo()
             if "errore" in res:
@@ -388,6 +465,8 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
             regione = str(payload.get("regione", "")).strip()
             priorita = payload.get("priorita", 2)
             note = payload.get("note", None)
+            data_ricontatto = payload.get("data_ricontatto", None)
+            motivo_ricontatto = payload.get("motivo_ricontatto", None)
 
             if not azienda or not telefono:
                 self._send_json({"ok": False, "errore": "Azienda e Telefono sono obbligatori."}, 400)
@@ -402,6 +481,8 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                 regione=regione,
                 priorita=priorita,
                 note=note,
+                data_ricontatto=data_ricontatto,
+                motivo_ricontatto=motivo_ricontatto,
             )
             if ok:
                 self._send_json({"ok": True, "messaggio": f"Contatto #{id_contatto} aggiornato con successo."})

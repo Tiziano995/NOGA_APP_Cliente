@@ -1,0 +1,75 @@
+#!/bin/bash
+# ==============================================================================
+# NOGA ROMA - macOS Native App Launcher
+# Avvia silenziosamente il server SQLite locale su 127.0.0.1:8080
+# e apre la finestra dedicata del Gestionale B2B.
+# ==============================================================================
+
+export LANG="it_IT.UTF-8"
+export LC_ALL="it_IT.UTF-8"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+MACOS_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONTENTS_DIR="$(cd "$MACOS_DIR/.." && pwd)"
+BUNDLE_APP_DIR="$CONTENTS_DIR/Resources/app"
+PARENT_PROJECT_DIR="$(cd "$CONTENTS_DIR/../.." && pwd)"
+CONFIGURED_PROJECT_DIR="C:/Progetti Lavoro/Noga_Gestionale"
+
+# Determina la cartella di lavoro contenente app_server.py e crm_ingrosso.db:
+# 1. Cartella padre del bundle .app (se l'app si trova dentro la cartella progetto)
+# 2. Percorso progetto originario sul Mac
+# 3. Copia autonoma interna al bundle (Contents/Resources/app) se spostata in /Applications
+if [ -f "$PARENT_PROJECT_DIR/app_server.py" ]; then
+    WORK_DIR="$PARENT_PROJECT_DIR"
+elif [ -f "$CONFIGURED_PROJECT_DIR/app_server.py" ]; then
+    WORK_DIR="$CONFIGURED_PROJECT_DIR"
+else
+    WORK_DIR="$BUNDLE_APP_DIR"
+fi
+
+cd "$WORK_DIR" || exit 1
+
+# Individua l'interprete Python 3 sul Mac
+PYTHON_BIN=""
+for candidate in "/opt/homebrew/bin/python3" "/usr/local/bin/python3" "/usr/bin/python3" "$(command -v python3)"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        PYTHON_BIN="$candidate"
+        break
+    fi
+done
+
+if [ -z "$PYTHON_BIN" ]; then
+    osascript -e 'display alert "Python 3 non trovato" message "Per eseguire NOGA Gestionale su macOS è necessario Python 3 (/usr/bin/python3 o Homebrew)." as critical'
+    exit 1
+fi
+
+URL_APP="http://127.0.0.1:8080/index.html"
+URL_HEALTH="http://127.0.0.1:8080/api/statistiche"
+LOG_FILE="/tmp/noga_roma_gestionale.log"
+
+# Verifica se il server NOGA ROMA è già attivo sulla porta 8080
+if ! curl -s --max-time 1 "$URL_HEALTH" >/dev/null 2>&1; then
+    nohup "$PYTHON_BIN" "$WORK_DIR/app_server.py" >"$LOG_FILE" 2>&1 &
+    SERVER_PID=$!
+
+    # Attendi fino a 5 secondi che il server SQLite risponda
+    for _ in {1..25}; do
+        if curl -s --max-time 1 "$URL_HEALTH" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.2
+    done
+fi
+
+# Apertura finestra dedicata nativa su macOS (senza barra indirizzi se Chrome/Brave/Edge è presente, altrimenti Safari/default)
+if [ -d "/Applications/Google Chrome.app" ]; then
+    open -na "Google Chrome" --args --app="$URL_APP" --window-size=1440,920
+elif [ -d "/Applications/Brave Browser.app" ]; then
+    open -na "Brave Browser" --args --app="$URL_APP" --window-size=1440,920
+elif [ -d "/Applications/Microsoft Edge.app" ]; then
+    open -na "Microsoft Edge" --args --app="$URL_APP" --window-size=1440,920
+else
+    open "$URL_APP"
+fi
+
+exit 0

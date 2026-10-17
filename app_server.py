@@ -1,11 +1,12 @@
 import json
 import os
 import urllib.parse
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import HTTPServer, SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 # Importa le funzioni di business logic consolidate in main.py
 import main
 
+HOST = "127.0.0.1"
 PORT = 8080
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
@@ -520,16 +521,19 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
 
 def run():
     main.crea_tabella()
-    server_address = ("127.0.0.1", PORT)
+    if len(main.ottieni_tutti_contatti()) == 0:
+        main.ripristina_dati_demo()
+
+    server_address = (HOST, PORT)
     try:
-        httpd = HTTPServer(server_address, GestionaleApiHandler)
-        print(f"[NOGA ROMA] Server Gestionale attivo su http://localhost:{PORT}/index.html")
+        httpd = ThreadingHTTPServer(server_address, GestionaleApiHandler)
+        print(f"[NOGA ROMA macOS] Server Gestionale attivo su http://{HOST}:{PORT}/index.html")
         httpd.serve_forever()
     except OSError as e:
         print(f"Errore avvio server su porta {PORT}: {e}")
         try:
-            httpd = HTTPServer(("127.0.0.1", 8081), GestionaleApiHandler)
-            print("[NOGA ROMA] Server Gestionale attivo su http://localhost:8081/index.html")
+            httpd = ThreadingHTTPServer((HOST, 8081), GestionaleApiHandler)
+            print(f"[NOGA ROMA macOS] Server Gestionale attivo su http://{HOST}:8081/index.html")
             httpd.serve_forever()
         except Exception as e2:
             print(f"Errore definitivo: {e2}")

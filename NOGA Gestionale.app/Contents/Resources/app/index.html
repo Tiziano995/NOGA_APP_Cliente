@@ -1,0 +1,1243 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NOGA ROMA | Gestionale B2B &amp; Acquisizione Clienti all'Ingrosso</title>
+  <meta name="description" content="Piattaforma gestionale interna NOGA ROMA per l'acquisizione buyer all'ingrosso, calendarizzazione ricontatti in tempo reale, gestione ordini B2B e analisi territoriale.">
+
+  <!-- Font ufficiale Geist & Geist Mono ispirato all'ecosistema NOGA ROMA -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Top Announcement Bar (Stile Atelier NOGA ROMA) -->
+  <div class="top-announcement-bar">
+    <div class="announcement-content">
+      <div class="announcement-left">
+        <span class="system-tag">PORTALE PRIVATO INTERNO</span>
+        <span class="divider">/</span>
+        <span class="system-desc">CRM ACQUISIZIONE CLIENTI ALL'INGROSSO // NOGA ROMA B2B</span>
+        <span class="divider">/</span>
+        <span class="db-status-indicator online" id="dbStatusIndicator">
+          <span class="status-dot"></span> SQLite Attivo (crm_ingrosso.db)
+        </span>
+      </div>
+      <div class="announcement-actions">
+        <button type="button" class="top-bar-link" id="topBtnImporta">Importa File</button>
+        <span class="divider">|</span>
+        <button type="button" class="top-bar-link" id="topBtnEsportaJson">Esporta JSON</button>
+        <span class="divider">|</span>
+        <button type="button" class="top-bar-link" id="topBtnEsportaCsv">Esporta CSV</button>
+        <span class="divider">|</span>
+        <button type="button" class="top-bar-link" id="topBtnRipristinaDemo">Ripristina Demo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Header Principale Minimal & Luxury -->
+  <header class="main-header">
+    <div class="header-inner">
+      <div class="brand-area">
+        <h1 class="brand-title">NOGA ROMA</h1>
+        <span class="brand-subtitle">DIREZIONE COMMERCIALE B2B &amp; OUTREACH</span>
+      </div>
+
+      <div class="header-actions">
+        <button type="button" class="btn btn-outline" id="btnRipristinaDemo" title="Carica il dataset dimostrativo con ordini, ricontatti, regioni e duplicati">
+          <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/>
+          </svg>
+          Ripristina Demo
+        </button>
+
+        <button type="button" class="btn btn-outline" id="btnImportaJson" title="Importa da JSON, CSV, TXT o Copia-Incolla Excel">
+          <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+          </svg>
+          Importa File
+        </button>
+
+        <button type="button" class="btn btn-outline" id="btnEsportaCsv" title="Scarica anagrafica e ordini in formato CSV per Excel">
+          <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="8" y1="13" x2="16" y2="13"/>
+            <line x1="8" y1="17" x2="16" y2="17"/>
+          </svg>
+          Esporta CSV
+        </button>
+
+        <button type="button" class="btn btn-outline" id="btnEsportaJson" title="Scarica backup completo in formato JSON">
+          <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+          </svg>
+          Esporta JSON
+        </button>
+
+        <button type="button" class="btn btn-primary" id="btnNuovoContatto">
+          <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          Nuovo Cliente
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Cruscotto KPI Ribbon (6 Contatori) -->
+  <section class="kpi-section" aria-label="Indicatori chiave di prestazione">
+    <div class="kpi-grid kpi-grid-6">
+      <div class="kpi-card" id="kpiTotaliCard">
+        <div class="kpi-label">Portafoglio Contatti</div>
+        <div class="kpi-value" id="kpiTotali">0</div>
+        <div class="kpi-meta">Anagrafiche B2B censite</div>
+      </div>
+
+      <div class="kpi-card highlight-urgent" id="kpiDaChiamareCard">
+        <div class="kpi-label">Coda Da Chiamare</div>
+        <div class="kpi-value" id="kpiDaChiamare">0</div>
+        <div class="kpi-meta" id="kpiDaChiamareMeta">Ordinati per scadenza e priorità</div>
+      </div>
+
+      <div class="kpi-card" id="kpiChiamatiCard">
+        <div class="kpi-label">Contatti Raggiunti</div>
+        <div class="kpi-value" id="kpiChiamati">0</div>
+        <div class="kpi-meta">Telefonate effettuate</div>
+      </div>
+
+      <div class="kpi-card highlight-success" id="kpiOrdiniCard">
+        <div class="kpi-label">Clienti con Ordine</div>
+        <div class="kpi-value" id="kpiInteressati">0</div>
+        <div class="kpi-meta">Buyer acquisiti attivi</div>
+      </div>
+
+      <div class="kpi-card highlight-noir" id="kpiFatturatoCard">
+        <div class="kpi-label">Totale Ordini (&euro;)</div>
+        <div class="kpi-value" id="kpiFatturato">&euro; 0,00</div>
+        <div class="kpi-meta" id="kpiFatturatoMeta">0 ordini &middot; Media &euro; 0,00</div>
+      </div>
+
+      <div class="kpi-card" id="kpiConversionCard">
+        <div class="kpi-label">Tasso Conversione %</div>
+        <div class="kpi-value"><span id="kpiTasso">0.0</span><small>%</small></div>
+        <div class="kpi-meta">Rapporto ordini / chiamate</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contenitore Principale delle 6 Viste -->
+  <main class="main-container">
+
+    <!-- Barra Navigazione a 6 Tab + Filtri Rapidi -->
+    <div class="view-navigation-bar">
+      <nav class="nav-tabs" aria-label="Viste principali del gestionale">
+        <button type="button" class="tab-btn active" data-tab="tab-coda">
+          <span class="tab-title">Coda Chiamate</span>
+          <span class="tab-badge" id="badgeCodaCount">0</span>
+        </button>
+
+        <button type="button" class="tab-btn" data-tab="tab-ordini">
+          <span class="tab-title">Ordini Confermati</span>
+          <span class="tab-badge success" id="badgeOrdiniCount">0</span>
+        </button>
+
+        <button type="button" class="tab-btn" data-tab="tab-calendario">
+          <svg class="icon tab-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <span class="tab-title">Calendario &amp; Ricontatti</span>
+          <span class="tab-badge warning" id="badgeCalendarioCount" title="Appuntamenti di Oggi + Scaduti">0</span>
+        </button>
+
+        <button type="button" class="tab-btn" data-tab="tab-anagrafica">
+          <span class="tab-title">Anagrafica Master</span>
+          <span class="tab-badge secondary" id="badgeTotaleCount">0</span>
+        </button>
+
+        <button type="button" class="tab-btn" data-tab="tab-analitiche">
+          <span class="tab-title">Cruscotto &amp; Report</span>
+        </button>
+
+        <button type="button" class="tab-btn" data-tab="tab-duplicati">
+          <span class="tab-title">Duplicati &amp; Ridondanze</span>
+          <span class="tab-badge warning" id="badgeDuplicatiCount">0</span>
+        </button>
+      </nav>
+
+      <!-- Barra di Ricerca Veloce e Filtri Globali -->
+      <div class="quick-filter-area">
+        <div class="search-input-wrapper">
+          <svg class="search-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input type="text" id="searchInput" placeholder="Cerca azienda, referente, città, regione, tel..." autocomplete="off" aria-label="Cerca contatti">
+          <button type="button" class="clear-search-btn hidden" id="clearSearchBtn" title="Cancella ricerca" aria-label="Cancella ricerca">&times;</button>
+        </div>
+
+        <select id="filterPrioritaSelect" class="filter-select" aria-label="Filtra per priorità">
+          <option value="">Tutte le priorità</option>
+          <option value="1">Priorità 1 &mdash; Alta</option>
+          <option value="2">Priorità 2 &mdash; Normale</option>
+          <option value="3">Priorità 3 &mdash; Bassa</option>
+        </select>
+
+        <select id="filterEsitoSelect" class="filter-select" aria-label="Filtra per esito commerciale">
+          <option value="">Tutti gli esiti</option>
+          <option value="In attesa">In attesa</option>
+          <option value="Interessato (Ordine preso)">Interessato (Ordine preso)</option>
+          <option value="Da richiamare">Da richiamare</option>
+          <option value="Non interessato (Rifiutato)">Non interessato (Rifiutato)</option>
+        </select>
+
+        <button type="button" class="btn btn-outline btn-sm" id="btnRefresh" title="Sincronizza con SQLite">
+          <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/>
+          </svg>
+          Aggiorna
+        </button>
+      </div>
+    </div>
+
+    <!-- ==================================================================== -->
+    <!-- TAB 1: CODA CHIAMATE (CON SCADENZA RICONTATTI & PRIORITÀ)            -->
+    <!-- ==================================================================== -->
+    <section class="tab-content active" id="tab-coda" aria-label="Coda Chiamate">
+      <div class="section-meta-header">
+        <div>
+          <h2 class="section-title">CODA OUTREACH CON SCADENZA RICONTATTI E PRIORITÀ</h2>
+          <p class="section-subtitle">I ricontatti scaduti o fissati per oggi appaiono automaticamente in cima alla lista, seguiti dai contatti con Priorità 1 (Alta).</p>
+        </div>
+        <div class="coda-summary-badge" id="codaSummaryBadge">
+          0 CONTATTI DA SMALTIRE
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-responsive">
+          <table class="data-table" id="tableCoda">
+            <thead>
+              <tr>
+                <th class="col-prio">Priorità</th>
+                <th>Azienda / Negozio</th>
+                <th>Referente</th>
+                <th class="col-phone">Recapito</th>
+                <th class="col-city">Città (Regione)</th>
+                <th class="col-callback">Prossimo Ricontatto</th>
+                <th>Note &amp; Contesto</th>
+                <th class="col-status">Stato Attuale</th>
+                <th class="col-actions-wide">Azioni Operatore</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyCoda"></tbody>
+          </table>
+        </div>
+        <div class="empty-state hidden" id="emptyCoda">
+          <div class="empty-icon-box">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3"/>
+            </svg>
+          </div>
+          <h3 class="empty-title">Coda Chiamate Esaurita</h3>
+          <p class="empty-desc">Nessun contatto in coda con i filtri correnti. Aggiungi nuovi clienti o importa un file per proseguire.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- TAB 2: CALENDARIO & AGENDA RICONTATTI IN TEMPO REALE                 -->
+    <!-- ==================================================================== -->
+    <section class="tab-content" id="tab-calendario" aria-label="Calendario e Agenda Ricontatti">
+      <div class="section-meta-header">
+        <div>
+          <h2 class="section-title">CALENDARIO INTERATTIVO &amp; AGENDA OPERATIVA RICONTATTI</h2>
+          <p class="section-subtitle">Pianificazione in tempo reale di appuntamenti telefonici, clienti non raggiungibili e follow-up ordini B2B.</p>
+        </div>
+
+        <div class="calendar-kpi-pills">
+          <div class="cal-stat-pill danger" id="calPillScaduti" title="Filtra appuntamenti scaduti o di oggi">
+            <span class="cal-stat-dot"></span>
+            <span class="cal-stat-label">Scaduti:</span>
+            <span class="cal-stat-num mono" id="calCountScaduti">0</span>
+          </div>
+          <div class="cal-stat-pill warning" id="calPillOggi" title="Filtra appuntamenti di oggi">
+            <span class="cal-stat-dot"></span>
+            <span class="cal-stat-label">Oggi:</span>
+            <span class="cal-stat-num mono" id="calCountOggi">0</span>
+          </div>
+          <div class="cal-stat-pill neutral" id="calPillFuturi" title="Mostra tutti gli appuntamenti pianificati">
+            <span class="cal-stat-dot"></span>
+            <span class="cal-stat-label">Futuri:</span>
+            <span class="cal-stat-num mono" id="calCountFuturi">0</span>
+          </div>
+          <div class="cal-stat-pill noir" id="calPillTotale">
+            <span class="cal-stat-label">Totale Agenda:</span>
+            <span class="cal-stat-num mono" id="calCountTotale">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Layout a 2 Colonne: Griglia Mensile a Sinistra + Agenda Operativa a Destra -->
+      <div class="calendar-workspace-grid">
+
+        <!-- COLONNA SINISTRA: GRIGLIA CALENDARIO MENSILE INTERATTIVA -->
+        <div class="calendar-month-panel">
+          <div class="calendar-nav-header">
+            <button type="button" class="btn btn-outline btn-xs" id="btnCalPrevMonth" aria-label="Mese precedente">
+              <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              Mese Prec.
+            </button>
+
+            <div class="calendar-current-month-wrap">
+              <h3 class="calendar-month-title" id="calMonthYearLabel">OTTOBRE 2026</h3>
+              <button type="button" class="btn-cal-today" id="btnCalToday">Vai a Oggi</button>
+            </div>
+
+            <button type="button" class="btn btn-outline btn-xs" id="btnCalNextMonth" aria-label="Mese successivo">
+              Mese Succ.
+              <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Intestazione Giorni della Settimana (Lun - Dom) -->
+          <div class="calendar-weekdays-row" role="row">
+            <div class="cal-weekday">LUN</div>
+            <div class="cal-weekday">MAR</div>
+            <div class="cal-weekday">MER</div>
+            <div class="cal-weekday">GIO</div>
+            <div class="cal-weekday">VEN</div>
+            <div class="cal-weekday">SAB</div>
+            <div class="cal-weekday">DOM</div>
+          </div>
+
+          <!-- Griglia Dinamica Giorni del Mese -->
+          <div class="calendar-days-grid" id="calendarDaysGrid" role="grid" aria-label="Giorni del mese"></div>
+
+          <!-- Legenda Stati Calendario -->
+          <div class="calendar-legend-footer">
+            <div class="legend-item">
+              <span class="legend-swatch swatch-scaduto"></span>
+              <span>Scaduto / In Ritardo</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch swatch-oggi"></span>
+              <span>Oggi (Da Chiamare)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch swatch-futuro"></span>
+              <span>Programmato Futuro</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- COLONNA DESTRA: AGENDA OPERATIVA IN TEMPO REALE -->
+        <div class="calendar-agenda-panel">
+          <div class="agenda-panel-header">
+            <div>
+              <span class="card-tag" id="agendaHeaderEyebrow">AGENDA OPERATIVA</span>
+              <h3 class="card-title" id="agendaHeaderTitle">TUTTI I RICONTATTI PIANIFICATI</h3>
+            </div>
+
+            <div class="segmented-switch" role="group" aria-label="Filtro rapido agenda">
+              <button type="button" class="seg-btn active" id="btnAgendaFilterTutti" data-cal-filter="tutti">
+                Tutti i Pianificati
+              </button>
+              <button type="button" class="seg-btn" id="btnAgendaFilterOggiScaduti" data-cal-filter="oggi_scaduti">
+                Oggi &amp; Scaduti
+              </button>
+              <button type="button" class="seg-btn" id="btnAgendaFilterGiorno" data-cal-filter="giorno">
+                <span id="labelAgendaFilterGiorno">Giorno Selezionato</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="agenda-cards-list" id="agendaCardsContainer"></div>
+
+          <div class="empty-state hidden" id="emptyAgenda">
+            <div class="empty-icon-box">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </div>
+            <h3 class="empty-title" id="emptyAgendaTitle">Nessun Appuntamento in Agenda</h3>
+            <p class="empty-desc" id="emptyAgendaDesc">Non ci sono ricontatti programmati per il filtro o la data selezionata. Clicca su "Pianifica" su qualsiasi cliente per fissare un appuntamento.</p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- TAB 3: ORDINI CONFERMATI (GRAFICO TOP CLIENTI + TABELLA ORDINI)      -->
+    <!-- ==================================================================== -->
+    <section class="tab-content" id="tab-ordini" aria-label="Ordini Confermati">
+      <div class="section-meta-header">
+        <div>
+          <h2 class="section-title">PORTAFOGLIO ORDINI CONFERMATI &amp; RIASSORTIMENTI B2B</h2>
+          <p class="section-subtitle">Analisi del valore economico per singolo buyer e gestione degli ordini ricorrenti nel tempo.</p>
+        </div>
+        <div class="header-inline-controls">
+          <button type="button" class="btn btn-outline btn-sm" id="btnVaiAnalisiTerritoriale">
+            <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M18 20V10M12 20V4M6 20v-6"/>
+            </svg>
+            Analisi per Città / Regione
+          </button>
+        </div>
+      </div>
+
+      <!-- Grafico Semplice Analisi Clienti (Barre Orizzontali CSS/SVG) -->
+      <div class="analytics-card chart-panel-spaced">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title">GRAFICO ANALISI CLIENTI PER ORDINI CONFERMATI</h3>
+            <span class="card-tag">CONFRONTO BUYER ATTIVI (VALORI IN EURO &euro; E N&deg; ORDINI)</span>
+          </div>
+          <div class="segmented-switch" role="group" aria-label="Ordina grafico clienti">
+            <button type="button" class="seg-btn active" id="btnOrdiniSortEuro" data-sort="totale_ordini">Ordina per Totale &euro;</button>
+            <button type="button" class="seg-btn" id="btnOrdiniSortNum" data-sort="numero_ordini">Ordina per N&deg; Ordini</button>
+          </div>
+        </div>
+        <div id="chartTopClientiContainer" class="bar-chart-container"></div>
+      </div>
+
+      <!-- Tabella Ordini Confermati -->
+      <div class="table-card">
+        <div class="table-responsive">
+          <table class="data-table" id="tableOrdini">
+            <thead>
+              <tr>
+                <th class="col-prio">Priorità</th>
+                <th>Azienda</th>
+                <th>Referente</th>
+                <th class="col-phone">Telefono</th>
+                <th class="col-city">Città (Regione)</th>
+                <th class="col-center">N&deg; Ordini</th>
+                <th class="col-amount">Totale Ordini (&euro;)</th>
+                <th class="col-date">Ultimo Ordine</th>
+                <th class="col-actions-wide">Azioni Rapide</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyOrdini"></tbody>
+          </table>
+        </div>
+        <div class="empty-state hidden" id="emptyOrdini">
+          <div class="empty-icon-box">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+              <line x1="3" y1="6" x2="21" y2="6"/>
+              <path d="M16 10a4 4 0 0 1-8 0"/>
+            </svg>
+          </div>
+          <h3 class="empty-title">Nessun Ordine Confermato</h3>
+          <p class="empty-desc">Registra un esito "Interessato (Ordine preso)" con importo in Euro oppure clicca su "+ Nuovo Ordine (&euro;)" per popolare questa sezione.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- TAB 4: ANAGRAFICA MASTER                                             -->
+    <!-- ==================================================================== -->
+    <section class="tab-content" id="tab-anagrafica" aria-label="Anagrafica Master">
+      <div class="section-meta-header">
+        <div>
+          <h2 class="section-title">REGISTRO ANAGRAFICO MASTER</h2>
+          <p class="section-subtitle">Catalogo completo dei negozi e buyer con referente, regione geografica, priorità, ricontatti e storico ordini.</p>
+        </div>
+        <div class="table-actions-toolbar">
+          <span class="results-counter" id="anagraficaCounter">Visualizzati: 0 contatti</span>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-responsive">
+          <table class="data-table" id="tableAnagrafica">
+            <thead>
+              <tr>
+                <th class="col-prio">Priorità</th>
+                <th>Ragione Sociale</th>
+                <th>Referente / Buyer</th>
+                <th class="col-phone">Telefono</th>
+                <th class="col-city">Città (Regione)</th>
+                <th class="col-callback">Prossimo Ricontatto</th>
+                <th class="col-amount">Totale Ordini (&euro;)</th>
+                <th class="col-status">Esito Commerciale</th>
+                <th class="col-date">Ultimo Contatto</th>
+                <th class="col-actions-wide">Opzioni</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyAnagrafica"></tbody>
+          </table>
+        </div>
+        <div class="empty-state hidden" id="emptyAnagrafica">
+          <div class="empty-icon-box">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.35-4.35"/>
+            </svg>
+          </div>
+          <h3 class="empty-title">Nessun Contatto Trovato</h3>
+          <p class="empty-desc">Non ci sono record corrispondenti ai filtri impostati. Prova a modificare i criteri di ricerca.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- TAB 5: CRUSCOTTO & REPORT (FUNNEL + ANALISI CITTÀ E REGIONE)         -->
+    <!-- ==================================================================== -->
+    <section class="tab-content" id="tab-analitiche" aria-label="Cruscotto e Report">
+      <div class="section-meta-header">
+        <div>
+          <h2 class="section-title">CRUSCOTTO DIREZIONALE &amp; ANALISI TERRITORIALE</h2>
+          <p class="section-subtitle">Metriche di conversione telefonica, rendimento economico degli ordini e distribuzione per Regione e Città.</p>
+        </div>
+      </div>
+
+      <div class="analytics-cards-grid">
+        <!-- Card 1: Funnel di Conversione -->
+        <div class="analytics-card">
+          <div class="card-head">
+            <h3 class="card-title">FUNNEL COMMERCIALE</h3>
+            <span class="card-tag">CONVERSIONE OUTREACH</span>
+          </div>
+          <div class="funnel-container">
+            <div class="funnel-step">
+              <div class="funnel-header">
+                <span>1. Portafoglio Totale Censito</span>
+                <span class="funnel-num" id="funnelTotali">0</span>
+              </div>
+              <div class="progress-bar-track">
+                <div class="progress-bar-fill full-width"></div>
+              </div>
+            </div>
+
+            <div class="funnel-step">
+              <div class="funnel-header">
+                <span>2. Contatti Raggiunti Telefonicamente</span>
+                <span class="funnel-num" id="funnelChiamati">0</span>
+              </div>
+              <div class="progress-bar-track">
+                <div class="progress-bar-fill" id="funnelChiamatiBar"></div>
+              </div>
+            </div>
+
+            <div class="funnel-step highlight-step">
+              <div class="funnel-header">
+                <span>3. Clienti con Ordine Confermato</span>
+                <span class="funnel-num" id="funnelInteressati">0</span>
+              </div>
+              <div class="progress-bar-track">
+                <div class="progress-bar-fill success" id="funnelInteressatiBar"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Ripartizione Esiti -->
+        <div class="analytics-card">
+          <div class="card-head">
+            <h3 class="card-title">STATO DELLA CAMPAGNA</h3>
+            <span class="card-tag">RIPARTIZIONE ESITI</span>
+          </div>
+          <div class="breakdown-list">
+            <div class="breakdown-row">
+              <div class="breakdown-label">
+                <span class="badge badge-success"><span class="badge-dot"></span> Interessato (Ordine preso)</span>
+              </div>
+              <div class="breakdown-val" id="statInteressati">0</div>
+            </div>
+
+            <div class="breakdown-row">
+              <div class="breakdown-label">
+                <span class="badge badge-warning"><span class="badge-dot"></span> Da richiamare</span>
+              </div>
+              <div class="breakdown-val" id="statDaRichiamare">0</div>
+            </div>
+
+            <div class="breakdown-row">
+              <div class="breakdown-label">
+                <span class="badge badge-danger"><span class="badge-dot"></span> Non interessato (Rifiutato)</span>
+              </div>
+              <div class="breakdown-val" id="statRifiutati">0</div>
+            </div>
+
+            <div class="breakdown-row">
+              <div class="breakdown-label">
+                <span class="badge badge-neutral"><span class="badge-dot"></span> In attesa</span>
+              </div>
+              <div class="breakdown-val" id="statInAttesa">0</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Riepilogo Finanziario Ordini B2B -->
+        <div class="analytics-card">
+          <div class="card-head">
+            <h3 class="card-title">PERFORMANCE ORDINI (&euro;)</h3>
+            <span class="card-tag">KPI ECONOMICI</span>
+          </div>
+          <div class="specs-list">
+            <div class="spec-item">
+              <span class="spec-k">Fatturato Totale Ordini:</span>
+              <span class="spec-v" id="specFatturatoTotale">&euro; 0,00</span>
+            </div>
+            <div class="spec-item">
+              <span class="spec-k">Totale Ordini Registrati:</span>
+              <span class="spec-v" id="specNumeroOrdini">0</span>
+            </div>
+            <div class="spec-item">
+              <span class="spec-k">Valore Medio Ordine (AOV):</span>
+              <span class="spec-v" id="specValoreMedio">&euro; 0,00</span>
+            </div>
+            <div class="spec-item">
+              <span class="spec-k">Completamento Coda:</span>
+              <span class="spec-v" id="specCompletamento">0.0%</span>
+            </div>
+            <div class="spec-item">
+              <span class="spec-k">Anomalie / Duplicati Attivi:</span>
+              <span class="spec-v" id="specDuplicatiCount">0 gruppi</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pannello Analisi Territoriale per Città e Regione (Grafico CSS/SVG) -->
+      <div class="analytics-card territorial-panel" id="panelAnalisiTerritoriale">
+        <div class="card-head">
+          <div>
+            <h3 class="card-title">ANALISI TERRITORIALE PER CITTÀ E REGIONE</h3>
+            <span class="card-tag">DISTRIBUZIONE GEOGRAFICA FATTURATO (&euro;) E CLIENTI ACQUISITI</span>
+          </div>
+          <div class="segmented-switch" role="group" aria-label="Seleziona dimensione geografica">
+            <button type="button" class="seg-btn active" id="btnGeoRegione" data-geo="regioni">Per Regione</button>
+            <button type="button" class="seg-btn" id="btnGeoCitta" data-geo="citta">Per Città</button>
+          </div>
+        </div>
+        <div id="chartTerritorialeContainer" class="bar-chart-container"></div>
+      </div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- TAB 6: DUPLICATI & RIDONDANZE (BONIFICA E MERGE SCHEDE)              -->
+    <!-- ==================================================================== -->
+    <section class="tab-content" id="tab-duplicati" aria-label="Duplicati e Ridondanze">
+      <div class="section-meta-header">
+        <div>
+          <h2 class="section-title">FILTRO ERRORI, RIDONDANZE &amp; BONIFICA CLIENTI DOPPI</h2>
+          <p class="section-subtitle">Rilevamento automatico di numeri telefonici identici (anche con prefissi/spazi diversi) e ragioni sociali omonime. Unisci le schede senza perdere storico ordini o note.</p>
+        </div>
+        <div class="coda-summary-badge" id="duplicatiSummaryBadge">
+          0 GRUPPI RILEVATI
+        </div>
+      </div>
+
+      <div id="duplicatiGroupsContainer" class="duplicates-groups-wrapper"></div>
+
+      <div class="table-card hidden" id="emptyDuplicatiCard">
+        <div class="empty-state">
+          <div class="empty-icon-box">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3"/>
+            </svg>
+          </div>
+          <h3 class="empty-title">Database Integro &mdash; Zero Ridondanze</h3>
+          <p class="empty-desc">Non sono stati rilevati contatti con numero di telefono duplicato o ragione sociale coincidente.</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ====================================================================== -->
+  <!-- MODAL 1: REGISTRA ESITO CHIAMATA (+ ORDINE € + CALENDARIZZA RICONTATTO)-->
+  <!-- ====================================================================== -->
+  <div class="modal-backdrop" id="modalEsitoBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalEsitoAziendaTitle">
+    <div class="modal-container modal-lg">
+      <div class="modal-header">
+        <div>
+          <span class="modal-eyebrow">REGISTRAZIONE ESITO TELEFONATA, ORDINE &amp; RICONTATTO</span>
+          <h3 class="modal-title" id="modalEsitoAziendaTitle">Azienda</h3>
+        </div>
+        <button type="button" class="modal-close-btn" id="modalEsitoCloseBtn" aria-label="Chiudi modale">&times;</button>
+      </div>
+
+      <form id="formRegistraEsito" class="modal-body">
+        <input type="hidden" id="esitoIdContatto">
+
+        <div class="lead-quick-info">
+          <div class="info-cell">
+            <span class="info-k">Telefono:</span>
+            <span class="info-v mono" id="modalEsitoTelefono">-</span>
+          </div>
+          <div class="info-cell">
+            <span class="info-k">Località:</span>
+            <span class="info-v" id="modalEsitoCitta">-</span>
+          </div>
+          <div class="info-cell">
+            <span class="info-k">Storico Ordini:</span>
+            <span class="info-v mono" id="modalEsitoTotaleOrdini">&euro; 0,00</span>
+          </div>
+        </div>
+
+        <!-- Pulsante Rapido Non Risponde / Occupato (1-Click) -->
+        <div class="quick-outcome-banner">
+          <span class="quick-outcome-label">Azione Rapida Telefono:</span>
+          <button type="button" class="btn btn-outline btn-xs" id="btnQuickNonRisponde">
+            <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            Non risponde &rarr; Richiama tra 2 ore
+          </button>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label" for="esitoInputReferente">Referente / Buyer Negozio</label>
+            <input type="text" id="esitoInputReferente" class="form-control" placeholder="Nome del titolare o buyer...">
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label" for="esitoSelectPriorita">Priorità Contatto</label>
+            <select id="esitoSelectPriorita" class="form-control">
+              <option value="1">1 &mdash; Alta / Massima Urgenza</option>
+              <option value="2">2 &mdash; Normale</option>
+              <option value="3">3 &mdash; Bassa</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label" for="selectChiamato">Contatto telefonico avvenuto?</label>
+            <select id="selectChiamato" class="form-control" required>
+              <option value="Sì">Sì (Risposta ottenuta)</option>
+              <option value="No">No (Non risponde / occupato)</option>
+            </select>
+          </div>
+
+          <div class="form-group flex-1">
+            <label class="form-label" for="selectEsito">Esito Commerciale</label>
+            <select id="selectEsito" class="form-control" required>
+              <option value="Interessato (Ordine preso)">Interessato (Ordine preso)</option>
+              <option value="Da richiamare">Da richiamare</option>
+              <option value="Non interessato (Rifiutato)">Non interessato (Rifiutato)</option>
+              <option value="In attesa">In attesa</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Box Importo Ordine (€) mostrato/evidenziato quando l'esito è Interessato -->
+        <div class="order-amount-highlight-box" id="boxImportoOrdineEsito">
+          <div class="form-group">
+            <label class="form-label" for="inputImportoOrdineChiamata">Importo Ordine Confermato (&euro;)</label>
+            <input type="number" step="0.01" min="0" id="inputImportoOrdineChiamata" class="form-control mono" placeholder="Es. 2450.00 (Lascia 0 se nessun nuovo ordine in questa chiamata)">
+            <span class="form-hint">Se maggiore di 0 &euro;, verrà creato un record nello storico ordini e sommato al totale del cliente.</span>
+          </div>
+        </div>
+
+        <!-- Blocco Calendarizza Ricontatto / Appuntamento -->
+        <div class="schedule-callback-box" id="boxCalendarizzaEsito">
+          <div class="schedule-box-header">
+            <div class="schedule-box-title">
+              <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              <span>CALENDARIZZA RICONTATTO / APPUNTAMENTO (OPZIONALE)</span>
+            </div>
+            <button type="button" class="btn-link-clear" id="btnEsitoRimuoviRicontatto">Rimuovi Ricontatto</button>
+          </div>
+
+          <div class="schedule-quick-slots" aria-label="Pulsanti rapidi data e ora a 1 click">
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="tra_1_ora">Tra 1 Ora</button>
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="tra_2_ore">Tra 2 Ore</button>
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="oggi_pomeriggio">Oggi Pomeriggio (15:30)</button>
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="domani_mattina">Domani Mattina (10:00)</button>
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="domani_pomeriggio">Domani Pomeriggio (16:00)</button>
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="lunedi_prossimo">Lunedì Prossimo (10:00)</button>
+          </div>
+
+          <div class="form-row schedule-inputs-row">
+            <div class="form-group flex-1">
+              <label class="form-label" for="esitoInputDataRicontatto">Data Ricontatto</label>
+              <input type="date" id="esitoInputDataRicontatto" class="form-control mono">
+            </div>
+            <div class="form-group flex-1">
+              <label class="form-label" for="esitoInputOraRicontatto">Ora Ricontatto</label>
+              <input type="time" id="esitoInputOraRicontatto" class="form-control mono">
+            </div>
+            <div class="form-group flex-2">
+              <label class="form-label" for="esitoSelectMotivoRicontatto">Motivo del Ricontatto</label>
+              <select id="esitoSelectMotivoRicontatto" class="form-control">
+                <option value="">-- Seleziona motivo ricontatto --</option>
+                <option value="Non risponde - Riprovare">Non risponde / Segreteria (Riprovare)</option>
+                <option value="Titolare assente - Richiamare">Titolare assente (Richiamare in orario concordato)</option>
+                <option value="Appuntamento concordato">Appuntamento telefonico concordato</option>
+                <option value="Follow-up nuovo ordine">Follow-up cliente acquisito (Proposta nuovo ordine)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="textareaNuoveNote">Note Commerciali / Dettaglio Ordine</label>
+          <div class="quick-chips-bar" aria-label="Note rapide a 1 click">
+            <button type="button" class="chip-btn" data-chip="Richiamare nel pomeriggio">+ Richiamare pomeriggio</button>
+            <button type="button" class="chip-btn" data-chip="Titolare assente, riprovare domani">+ Titolare assente</button>
+            <button type="button" class="chip-btn" data-chip="Inviare catalogo e foto su WhatsApp">+ Inviare catalogo WhatsApp</button>
+            <button type="button" class="chip-btn" data-chip="Richiede listino B2B aggiornato">+ Richiede listino B2B</button>
+          </div>
+          <textarea id="textareaNuoveNote" class="form-control" rows="2" placeholder="Annotazioni sulla conversazione o composizione dell'ordine..."></textarea>
+        </div>
+
+        <div class="notes-history-section" id="modalEsitoStoricoWrapper">
+          <div class="history-label">Storico Note Precedenti:</div>
+          <div class="history-content mono" id="modalEsitoStoricoNote">Nessuna nota precedente.</div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnAnnullaEsito">Annulla</button>
+          <button type="submit" class="btn btn-primary" id="btnSalvaEsito">Salva Esito Telefonata</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====================================================================== -->
+  <!-- MODAL 2: PIANIFICA / SPOSTA RICONTATTO RAPIDO (DA TABELLE E CALENDARIO)-->
+  <!-- ====================================================================== -->
+  <div class="modal-backdrop" id="modalPianificaBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalPianificaTitle">
+    <div class="modal-container modal-lg">
+      <div class="modal-header">
+        <div>
+          <span class="modal-eyebrow">CALENDARIZZAZIONE IN TEMPO REALE</span>
+          <h3 class="modal-title" id="modalPianificaTitle">Pianifica Ricontatto</h3>
+        </div>
+        <button type="button" class="modal-close-btn" id="modalPianificaCloseBtn" aria-label="Chiudi modale">&times;</button>
+      </div>
+
+      <form id="formPianificaRicontatto" class="modal-body">
+        <input type="hidden" id="pianificaIdContatto">
+
+        <div class="lead-quick-info">
+          <div class="info-cell">
+            <span class="info-k">Cliente:</span>
+            <span class="info-v" id="modalPianificaAzienda">-</span>
+          </div>
+          <div class="info-cell">
+            <span class="info-k">Telefono:</span>
+            <span class="info-v mono" id="modalPianificaTelefono">-</span>
+          </div>
+          <div class="info-cell">
+            <span class="info-k">Ricontatto Attuale:</span>
+            <span class="info-v mono" id="modalPianificaAttuale">Nessuno</span>
+          </div>
+        </div>
+
+        <div class="schedule-callback-box active-box">
+          <div class="schedule-box-header">
+            <div class="schedule-box-title">
+              <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              <span>SELEZIONA SLOT RAPIDO A 1 CLICK OPPURE DATA E ORA PERSONALIZZATE</span>
+            </div>
+            <button type="button" class="btn-link-clear" id="btnPianificaRimuovi">Rimuovi dal Calendario</button>
+          </div>
+
+          <div class="schedule-quick-slots" aria-label="Scelte rapide orario ricontatto">
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="tra_1_ora">Tra 1 Ora</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="tra_2_ore">Tra 2 Ore</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="oggi_pomeriggio">Oggi Pomeriggio (15:30)</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="domani_mattina">Domani Mattina (10:00)</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="domani_pomeriggio">Domani Pomeriggio (16:00)</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="lunedi_prossimo">Lunedì Prossimo (10:00)</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="piu_1_giorno">+1 Giorno (Stessa Ora)</button>
+          </div>
+
+          <div class="form-row schedule-inputs-row">
+            <div class="form-group flex-1">
+              <label class="form-label" for="pianificaInputData">Data Appuntamento *</label>
+              <input type="date" id="pianificaInputData" class="form-control mono" required>
+            </div>
+            <div class="form-group flex-1">
+              <label class="form-label" for="pianificaInputOra">Ora Appuntamento *</label>
+              <input type="time" id="pianificaInputOra" class="form-control mono" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-2">
+              <label class="form-label" for="pianificaSelectMotivo">Motivo del Ricontatto</label>
+              <select id="pianificaSelectMotivo" class="form-control">
+                <option value="Appuntamento concordato">Appuntamento telefonico concordato</option>
+                <option value="Non risponde - Riprovare">Non risponde / Segreteria (Riprovare)</option>
+                <option value="Titolare assente - Richiamare">Titolare assente (Richiamare in orario concordato)</option>
+                <option value="Follow-up nuovo ordine">Follow-up cliente acquisito (Proposta nuovo ordine)</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label class="form-label" for="pianificaSelectPriorita">Priorità</label>
+              <select id="pianificaSelectPriorita" class="form-control">
+                <option value="1">1 &mdash; Alta / Urgente</option>
+                <option value="2">2 &mdash; Normale</option>
+                <option value="3">3 &mdash; Bassa</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="pianificaInputNota">Nota Aggiuntiva per il Ricontatto (Opzionale)</label>
+          <input type="text" id="pianificaInputNota" class="form-control" placeholder="Es. Chiedere direttamente della Sig.ra Elena dopo le 15:00...">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnAnnullaPianifica">Annulla</button>
+          <button type="submit" class="btn btn-primary" id="btnSalvaPianifica">Salva in Calendario</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====================================================================== -->
+  <!-- MODAL 3: NUOVO / MODIFICA CONTATTO CLIENTE                             -->
+  <!-- ====================================================================== -->
+  <div class="modal-backdrop" id="modalNuovoBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalContattoTitle">
+    <div class="modal-container">
+      <div class="modal-header">
+        <div>
+          <span class="modal-eyebrow" id="modalContattoEyebrow">ACQUISIZIONE ANAGRAFICA</span>
+          <h3 class="modal-title" id="modalContattoTitle">Nuovo Cliente all'Ingrosso</h3>
+        </div>
+        <button type="button" class="modal-close-btn" id="modalNuovoCloseBtn" aria-label="Chiudi modale">&times;</button>
+      </div>
+
+      <form id="formNuovoContatto" class="modal-body">
+        <input type="hidden" id="contattoEditId" value="">
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label" for="inputAzienda">Ragione Sociale / Negozio *</label>
+            <input type="text" id="inputAzienda" class="form-control" placeholder="Es. Calzature Roma Centro Srl" required>
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label" for="inputReferente">Referente / Buyer</label>
+            <input type="text" id="inputReferente" class="form-control" placeholder="Es. Dott. Marco Neri">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label" for="inputTelefono">Numero di Telefono *</label>
+            <input type="tel" id="inputTelefono" class="form-control mono" placeholder="Es. 06 12345678" required>
+            <span class="form-hint">Controllo anti-duplicato normalizzato attivo.</span>
+          </div>
+
+          <div class="form-group flex-1">
+            <label class="form-label" for="inputPriorita">Priorità Operativa</label>
+            <select id="inputPriorita" class="form-control">
+              <option value="1">1 &mdash; Alta / Massima</option>
+              <option value="2" selected>2 &mdash; Normale</option>
+              <option value="3">3 &mdash; Bassa</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label" for="inputCitta">Città</label>
+            <input type="text" id="inputCitta" class="form-control" placeholder="Es. Milano, Roma, Firenze...">
+          </div>
+
+          <div class="form-group flex-1">
+            <label class="form-label" for="inputRegione">Regione (Auto-rilevata)</label>
+            <input type="text" id="inputRegione" class="form-control" placeholder="Auto da città (es. Lombardia)">
+          </div>
+        </div>
+
+        <div class="form-group" id="groupOrdineIniziale">
+          <label class="form-label" for="inputOrdineIniziale">Ordine Iniziale Confermato (&euro;) (Opzionale)</label>
+          <input type="number" step="0.01" min="0" id="inputOrdineIniziale" class="form-control mono" placeholder="0.00">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="inputNote">Note Commerciali</label>
+          <textarea id="inputNote" class="form-control" rows="3" placeholder="Es. Boutique storica in centro, interessati a linea donna autunno/inverno..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnAnnullaNuovo">Annulla</button>
+          <button type="submit" class="btn btn-primary" id="btnSalvaNuovo">Salva Scheda Cliente</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====================================================================== -->
+  <!-- MODAL 4: AGGIUNGI NUOVO ORDINE (€) NEL TEMPO                           -->
+  <!-- ====================================================================== -->
+  <div class="modal-backdrop" id="modalNuovoOrdineBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalNuovoOrdineTitle">
+    <div class="modal-container">
+      <div class="modal-header">
+        <div>
+          <span class="modal-eyebrow">AGGIORNAMENTO ORDINI NEL TEMPO</span>
+          <h3 class="modal-title" id="modalNuovoOrdineTitle">Nuovo Ordine (&euro;)</h3>
+        </div>
+        <button type="button" class="modal-close-btn" id="modalNuovoOrdineCloseBtn" aria-label="Chiudi modale">&times;</button>
+      </div>
+
+      <form id="formNuovoOrdine" class="modal-body">
+        <input type="hidden" id="ordineIdContatto">
+
+        <div class="lead-quick-info">
+          <div class="info-cell">
+            <span class="info-k">Cliente:</span>
+            <span class="info-v" id="modalOrdineAzienda">-</span>
+          </div>
+          <div class="info-cell">
+            <span class="info-k">Totale Attuale:</span>
+            <span class="info-v mono" id="modalOrdineAttuale">&euro; 0,00 (0 ordini)</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="inputNuovoOrdineImporto">Importo Nuovo Ordine in Euro (&euro;) *</label>
+          <input type="number" step="0.01" min="0.01" id="inputNuovoOrdineImporto" class="form-control mono" placeholder="Es. 1850.00" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="inputNuovoOrdineNote">Dettaglio / Riferimento Ordine</label>
+          <input type="text" id="inputNuovoOrdineNote" class="form-control" placeholder="Es. Riassortimento 30 paia stivaletti pelle Noir">
+          <span class="form-hint">L'importo verrà sommato al totale ordini del cliente e salvato nello storico cronologico.</span>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnAnnullaNuovoOrdine">Annulla</button>
+          <button type="submit" class="btn btn-primary">Conferma e Registra Ordine (&euro;)</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====================================================================== -->
+  <!-- MODAL 5: IMPORTAZIONE UNIVERSALE (JSON, CSV, TXT, EXCEL COPY-PASTE)    -->
+  <!-- ====================================================================== -->
+  <div class="modal-backdrop" id="modalImportBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalImportTitle">
+    <div class="modal-container modal-lg">
+      <div class="modal-header">
+        <div>
+          <span class="modal-eyebrow">INGESTIONE DATI MULTI-FORMATO</span>
+          <h3 class="modal-title" id="modalImportTitle">Importazione Universale (JSON / CSV / TXT / Excel)</h3>
+        </div>
+        <button type="button" class="modal-close-btn" id="modalImportCloseBtn" aria-label="Chiudi modale">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <p class="section-subtitle">
+          Trascina o seleziona un file <strong>.json</strong>, <strong>.csv</strong> (separatore <code>,</code> o <code>;</code>), <strong>.txt / .tsv</strong> oppure incolla direttamente le righe copiate da <strong>Excel</strong>. Le colonne vengono riconosciute automaticamente e la Regione viene dedotta dalla Città.
+        </p>
+
+        <div class="dropzone-box" id="importDropzone">
+          <svg class="icon-dropzone" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+          </svg>
+          <div class="dropzone-title">Trascina qui il tuo file (.JSON, .CSV, .TXT, .TSV)</div>
+          <div class="dropzone-sub">oppure clicca per sfogliare dal computer</div>
+          <input type="file" id="fileInputJson" accept=".json,.csv,.txt,.tsv" class="hidden">
+        </div>
+
+        <div class="import-actions-row">
+          <button type="button" class="btn btn-outline w-100" id="btnCaricaFileJson">
+            Sfoglia File Locale (.json / .csv / .txt)
+          </button>
+          <button type="button" class="btn btn-outline w-100" id="btnImportaDefaultFile">
+            Carica 'contatti_lead.json' dal Server
+          </button>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="textareaJsonRaw">Oppure incolla qui da Excel, CSV, TXT o JSON:</label>
+          <textarea id="textareaJsonRaw" class="form-control mono text-xs" rows="6" placeholder="Esempio CSV / Excel:
+Azienda;Referente;Telefono;Città;Priorità;Importo
+Calzature Rossi Srl;Mario Rossi;02 1234567;Milano;Alta;2400.00
+Boutique Verdi;Laura Verdi;06 7654321;Roma;Normale;0"></textarea>
+        </div>
+
+        <div class="import-feedback-box hidden" id="importFeedbackBox"></div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnAnnullaImport">Chiudi</button>
+          <button type="button" class="btn btn-primary" id="btnEseguiImportTesto">Analizza e Importa Contatti</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================== -->
+  <!-- MODAL 6: CONFERMA ELIMINAZIONE CLIENTE (SICUREZZA ANTI-ERRORE)         -->
+  <!-- ====================================================================== -->
+  <div class="modal-backdrop" id="modalEliminaBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalEliminaTitle">
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <div>
+          <span class="modal-eyebrow">CONFERMA OPERAZIONE DISTRUTTIVA</span>
+          <h3 class="modal-title" id="modalEliminaTitle">Eliminare Definitivamente il Cliente?</h3>
+        </div>
+        <button type="button" class="modal-close-btn" id="modalEliminaCloseBtn" aria-label="Chiudi modale">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="section-subtitle">
+          Stai per rimuovere dal database SQLite la scheda di <strong id="eliminaNomeAzienda">-</strong> (<span class="mono" id="eliminaTelefonoAzienda">-</span>) e tutti gli ordini ad essa collegati.
+        </p>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnAnnullaElimina">Annulla</button>
+          <button type="button" class="btn btn-danger-solid" id="btnConfermaElimina">Conferma Eliminazione</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================== -->
+  <!-- SLIDE-OVER DRAWER: SCHEDA COMPLETA BUYER + STORICO ORDINI (€) + NOTE   -->
+  <!-- ====================================================================== -->
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="detail-drawer" id="detailDrawer" aria-label="Dettaglio Scheda Cliente">
+    <div class="drawer-header">
+      <div>
+        <span class="modal-eyebrow">SCHEDA CLIENTE B2B</span>
+        <h3 class="drawer-title" id="drawerAzienda">Azienda</h3>
+      </div>
+      <button type="button" class="modal-close-btn" id="drawerCloseBtn" aria-label="Chiudi scheda">&times;</button>
+    </div>
+
+    <div class="drawer-body">
+      <div class="drawer-section">
+        <div class="drawer-section-title">ANAGRAFICA &amp; QUALIFICA</div>
+        <div class="detail-row">
+          <span class="detail-k">Identificativo:</span>
+          <span class="detail-v mono" id="drawerId">#0</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-k">Priorità Operativa:</span>
+          <span class="detail-v" id="drawerPriorita">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-k">Referente / Buyer:</span>
+          <span class="detail-v" id="drawerReferente">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-k">Recapito Telefonico:</span>
+          <span class="detail-v mono" id="drawerTelefono">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-k">Città / Regione:</span>
+          <span class="detail-v" id="drawerCitta">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-k">Prossimo Ricontatto:</span>
+          <span class="detail-v" id="drawerRicontatto">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-k">Motivo Ricontatto:</span>
+          <span class="detail-v" id="drawerMotivoRicontatto">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-k">Stato Chiamata:</span>
+          <span class="detail-v" id="drawerChiamato">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-k">Esito Commerciale:</span>
+          <span class="detail-v" id="drawerEsito">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-k">Totale Ordini (&euro;):</span>
+          <span class="detail-v mono" id="drawerTotaleOrdini">&euro; 0,00</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-k">Ultimo Aggiornamento:</span>
+          <span class="detail-v mono" id="drawerData">-</span>
+        </div>
+      </div>
+
+      <!-- Storico Ordini nel Tempo -->
+      <div class="drawer-section">
+        <div class="drawer-section-header-inline">
+          <span class="drawer-section-title no-border">STORICO ORDINI CONFERMATI (&euro;)</span>
+          <button type="button" class="btn btn-primary btn-xs" id="drawerBtnNuovoOrdine">+ Nuovo Ordine (&euro;)</button>
+        </div>
+        <div class="orders-timeline" id="drawerOrdersTimeline"></div>
+      </div>
+
+      <!-- Storico Note separato da | -->
+      <div class="drawer-section">
+        <div class="drawer-section-title">CRONOLOGIA CONVERSAZIONI &amp; NOTE</div>
+        <div class="notes-timeline" id="drawerNotesTimeline"></div>
+      </div>
+
+      <!-- Azioni Immediate -->
+      <div class="drawer-section">
+        <div class="drawer-section-title">AZIONI OPERATORE</div>
+        <div class="drawer-actions-stack">
+          <button type="button" class="btn btn-primary w-100" id="drawerBtnRegistraChiamata">
+            <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+            </svg>
+            Registra Esito Telefonata
+          </button>
+
+          <button type="button" class="btn btn-outline w-100" id="drawerBtnPianifica">
+            <svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            Pianifica / Sposta Ricontatto
+          </button>
+
+          <button type="button" class="btn btn-outline w-100" id="drawerBtnModificaContatto">
+            Modifica Referente / Anagrafica
+          </button>
+
+          <a href="#" class="btn btn-outline w-100" id="drawerLinkChiama">
+            Componi Telefonata Diretta
+          </a>
+
+          <button type="button" class="btn btn-danger-outline w-100" id="drawerBtnElimina">
+            Elimina Definitivamente Cliente
+          </button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+  <!-- SCRIPT APPLICATIVO -->
+  <script src="app.js"></script>
+</body>
+</html>

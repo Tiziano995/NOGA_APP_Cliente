@@ -77,3 +77,25 @@ Tutte le modifiche, interventi architetturali, refactoring e aggiornamenti devon
   - Verifica integrità 186 ID DOM tra `app.js` e `index.html`: 100% PASS.
   - Verifica Design System (0 colori esadecimali cablati in `index.html` e `app.js`, 0 emoji, icone SVG accessibili): 100% PASS.
   - Test E2E su backend SQLite e server HTTP live (`GET /api/calendario`, `POST /api/contatti/{id}/ricontatto`, `POST /api/contatti/{id}/chiamata`): 100% PASS.
+
+---
+
+## [2026-10-17 15:40] - MACOS-005: Configurazione Nativa per macOS, Generatore Bundle `NOGA Gestionale.app` (`crea_app_mac.py`) e Slot Rapido `Tra 2 Ore`
+
+- **ID Intervento**: `MACOS-005`
+- **Data / Ora**: 2026-10-17 15:40 CEST
+- **Punto di Ripristino (Rollback)**: Tag Git `v3.0-calendar` (pre-macOS bundle) e `v3.1-macos-app` (post-verifica)
+- **Motivazione**:
+  - Creazione dello script [`crea_app_mac.py`](file:///c:/Progetti%20Lavoro/Noga_Gestionale/crea_app_mac.py) (100% Python Standard Library) che genera automaticamente il bundle nativo macOS **`NOGA Gestionale.app`** (`Contents/Info.plist`, `Contents/PkgInfo`, `Contents/MacOS/NOGA_Launcher` con line-endings Unix `LF` e permessi `0755`, e copia autonoma in `Contents/Resources/app`) + lo script Finder **`Avvia_NOGA_Mac.command`**.
+  - Risoluzione assoluta del percorso `NOME_DB` in `main.py` e utilizzo di `ThreadingHTTPServer` su `127.0.0.1:8080` in `app_server.py` per garantire esecuzione impeccabile quando avviato dal Dock o da `/Applications` su macOS.
+  - Aggiunta del bottone rapido `"Non risponde -> Richiama tra 2 ore"` e dello slot `"Tra 2 Ore"` nei modali di pianificazione chiamata.
+- **File Creati / Modificati**:
+  - `crea_app_mac.py` (creato)
+  - `NOGA Gestionale.app/` (bundle nativo macOS generato)
+  - `Avvia_NOGA_Mac.command` (creato)
+  - `main.py` & `agenda_funzioni.py` (aggiornati)
+  - `app_server.py` (aggiornato)
+  - `index.html` & `app.js` (aggiornati)
+  - `CHANGELOG.md` (aggiornato)
+- **Esito Quality Gates**:
+  - Validazione XML `Info.plist`, verifica assenza `CRLF` negli script Bash macOS e test E2E su `127.0.0.1`: 100% PASS.

@@ -141,6 +141,11 @@
           <span class="tab-badge" id="badgeCodaCount">0</span>
         </button>
 
+        <button type="button" class="tab-btn" data-tab="tab-ordini">
+          <span class="tab-title">Ordini Confermati</span>
+          <span class="tab-badge success" id="badgeOrdiniCount">0</span>
+        </button>
+
         <button type="button" class="tab-btn" data-tab="tab-calendario">
           <svg class="icon tab-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <rect x="3" y="4" width="18" height="18" rx="0" ry="0"/>
@@ -148,13 +153,8 @@
             <line x1="8" y1="2" x2="8" y2="6"/>
             <line x1="3" y1="10" x2="21" y2="10"/>
           </svg>
-          <span class="tab-title">Calendario</span>
+          <span class="tab-title">Calendario &amp; Ricontatti</span>
           <span class="tab-badge warning" id="badgeCalendarioCount" title="Appuntamenti di Oggi + Scaduti">0</span>
-        </button>
-
-        <button type="button" class="tab-btn" data-tab="tab-ordini">
-          <span class="tab-title">Ordini Confermati</span>
-          <span class="tab-badge success" id="badgeOrdiniCount">0</span>
         </button>
 
         <button type="button" class="tab-btn" data-tab="tab-anagrafica">
@@ -704,7 +704,7 @@
               <line x1="8" y1="2" x2="8" y2="6"/>
               <line x1="3" y1="10" x2="21" y2="10"/>
             </svg>
-            Non risponde / Occupato (Pianifica Ricontatto)
+            Non risponde &rarr; Richiama tra 2 ore
           </button>
         </div>
 
@@ -769,6 +769,7 @@
 
           <div class="schedule-quick-slots" aria-label="Pulsanti rapidi data e ora a 1 click">
             <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="tra_1_ora">Tra 1 Ora</button>
+            <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="tra_2_ore">Tra 2 Ore</button>
             <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="oggi_pomeriggio">Oggi Pomeriggio (15:30)</button>
             <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="domani_mattina">Domani Mattina (10:00)</button>
             <button type="button" class="slot-btn" data-target-prefix="esito" data-quick-slot="domani_pomeriggio">Domani Pomeriggio (16:00)</button>
@@ -868,6 +869,7 @@
 
           <div class="schedule-quick-slots" aria-label="Scelte rapide orario ricontatto">
             <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="tra_1_ora">Tra 1 Ora</button>
+            <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="tra_2_ore">Tra 2 Ore</button>
             <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="oggi_pomeriggio">Oggi Pomeriggio (15:30)</button>
             <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="domani_mattina">Domani Mattina (10:00)</button>
             <button type="button" class="slot-btn" data-target-prefix="pianifica" data-quick-slot="domani_pomeriggio">Domani Pomeriggio (16:00)</button>

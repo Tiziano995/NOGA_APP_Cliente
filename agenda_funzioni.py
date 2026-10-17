@@ -6,8 +6,9 @@ import re
 import sqlite3
 from datetime import datetime, timedelta
 
-# Nome del file database SQLite locale
-NOME_DB = "crm_ingrosso.db"
+# Percorso assoluto della cartella di progetto (fondamentale per esecuzione da bundle .app macOS / Dock)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+NOME_DB = os.path.join(BASE_DIR, "crm_ingrosso.db")
 
 # ==============================================================================
 # 0. DOMINIO PURO: MAPPATURA GEOGRAFICA, NORMALIZZAZIONE E STATO RICONTATTI

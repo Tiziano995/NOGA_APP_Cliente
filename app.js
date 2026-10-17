@@ -179,6 +179,14 @@ function calcolaSlotRapido(slotKey, baseDateStr = "", baseTimeStr = "") {
     return { date: formatDateISO(target), time: formatTimeISO(target) };
   }
 
+  if (slotKey === "tra_2_ore") {
+    target.setHours(target.getHours() + 2);
+    const min = target.getMinutes();
+    target.setMinutes(min < 30 ? 30 : 0);
+    if (min >= 30) target.setHours(target.getHours() + 1);
+    return { date: formatDateISO(target), time: formatTimeISO(target) };
+  }
+
   if (slotKey === "oggi_pomeriggio") {
     return { date: formatDateISO(target), time: "15:30" };
   }
@@ -1691,14 +1699,14 @@ function impostaEsitoRapidoNonRisponde() {
   document.getElementById("esitoSelectMotivoRicontatto").value = "Non risponde - Riprovare";
   aggiornaVisibilitaBoxOrdineEsito();
 
-  const slot = calcolaSlotRapido("tra_1_ora");
+  const slot = calcolaSlotRapido("tra_2_ore");
   document.getElementById("esitoInputDataRicontatto").value = slot.date;
   document.getElementById("esitoInputOraRicontatto").value = slot.time;
 
   const box = document.getElementById("boxCalendarizzaEsito");
   box.classList.add("highlight-schedule");
   document.getElementById("esitoInputDataRicontatto").focus();
-  showToast("Impostato 'Non risponde': verifica o scegli l'orario di ricontatto", "success");
+  showToast("Impostato 'Non risponde -> Richiama tra 2 ore': premi Salva per confermare", "success");
 }
 
 function aggiornaVisibilitaBoxOrdineEsito() {

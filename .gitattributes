@@ -1,0 +1,7 @@
+* text=auto
+*.sh text eol=lf
+*.command text eol=lf
+**/Contents/MacOS/* text eol=lf
+**/Contents/Info.plist text eol=lf
+**/Contents/PkgInfo binary
+*.db binary

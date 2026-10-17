@@ -21,7 +21,7 @@ Apri l'app **Terminale** su macOS (la trovi in `Applicazioni > Utility > Termina
 
 ```bash
 cd ~/Documents
-git clone https://github.com/<TUO-USERNAME>/Noga_Gestionale.git
+git clone https://github.com/Tiziano995/Noga_Gestionale.git
 cd Noga_Gestionale
 ```
 

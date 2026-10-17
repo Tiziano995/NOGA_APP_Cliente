@@ -2902,17 +2902,9 @@ function setupEventListeners() {
     showToast("Dati e calendario aggiornati in tempo reale", "success");
   });
 
-  document.getElementById("btnRipristinaDemo").addEventListener("click", ripristinaDemoRicca);
-  document.getElementById("topBtnRipristinaDemo").addEventListener("click", ripristinaDemoRicca);
-
   document.getElementById("btnImportaJson").addEventListener("click", apriModalImport);
-  document.getElementById("topBtnImporta").addEventListener("click", apriModalImport);
-
   document.getElementById("btnEsportaJson").addEventListener("click", esportaFileJson);
-  document.getElementById("topBtnEsportaJson").addEventListener("click", esportaFileJson);
-
   document.getElementById("btnEsportaCsv").addEventListener("click", esportaFileCsv);
-  document.getElementById("topBtnEsportaCsv").addEventListener("click", esportaFileCsv);
 
   document.getElementById("btnCalPrevMonth").addEventListener("click", () => {
     state.calendarMonth--;

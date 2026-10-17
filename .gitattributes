@@ -1,7 +1,13 @@
-* text=auto
-*.sh text eol=lf
+* text=auto eol=lf
 *.command text eol=lf
-**/Contents/MacOS/* text eol=lf
-**/Contents/Info.plist text eol=lf
-**/Contents/PkgInfo binary
+*.sh text eol=lf
+*.jxa text eol=lf
+*.m text eol=lf
+*.py text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.plist text eol=lf
+NOGA_Launcher text eol=lf
+PkgInfo binary
 *.db binary

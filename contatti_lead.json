@@ -1,0 +1,32 @@
+[
+  {
+    "azienda": "Calzature Elegance Srl",
+    "telefono": "0298765431",
+    "citta": "Milano",
+    "note": "Catena con 3 negozi in centro, interessati a forniture di scarpe eleganti in pelle"
+  },
+  {
+    "azienda": "Boutique del Piede di Marco Neri",
+    "telefono": "0655443322",
+    "citta": "Roma",
+    "note": "Negozio storico, cercano stock di scarpe sportive e sneakers per primavera"
+  },
+  {
+    "azienda": "Outlet Scarpa Facile",
+    "telefono": "0511122334",
+    "citta": "Bologna",
+    "note": "Grandi volumi di vendita, chiedono listino prezzi all'ingrosso per ordini superiori a 100 paia"
+  },
+  {
+    "azienda": "Tendenza Calzature",
+    "telefono": "0819988776",
+    "citta": "Napoli",
+    "note": "Punto vendita al dettaglio, interessati a calzature estive e sandali"
+  },
+  {
+    "azienda": "Sport & Style Store",
+    "telefono": "0113344556",
+    "citta": "Torino",
+    "note": "Specializzati in scarpe running e ginnastica"
+  }
+]

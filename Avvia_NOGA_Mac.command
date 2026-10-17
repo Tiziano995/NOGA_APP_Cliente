@@ -7,6 +7,7 @@ APP_BUNDLE="$DIR/NOGA Gestionale.app"
 
 chmod -R +x "$APP_BUNDLE/Contents/MacOS" 2>/dev/null || true
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+/usr/bin/codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || true
 
-open "$APP_BUNDLE"
+open "$APP_BUNDLE" || "$APP_BUNDLE/Contents/MacOS/NOGA_Launcher" &
 exit 0

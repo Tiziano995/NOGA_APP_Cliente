@@ -1,11 +1,11 @@
 #!/bin/bash
 # ==============================================================================
-# NOGA ROMA — INSTALLATORE AUTOMATICO APP NATIVA macOS (1-CLICK)
+# NOGA ROMA — INSTALLATORE E SBLOCCO PERMESSI macOS (1-CLICK)
 # ==============================================================================
 
 clear
 echo "========================================================================"
-echo "  NOGA ROMA — INSTALLAZIONE APPLICAZIONE DESKTOP NATIVA macOS"
+echo "  NOGA ROMA — INSTALLAZIONE E SBLOCCO PERMESSI APP NATIVA macOS"
 echo "========================================================================"
 echo ""
 
@@ -14,33 +14,32 @@ SOURCE_APP="$DIR/NOGA Gestionale.app"
 DEST_APPLICATIONS="/Applications/NOGA Gestionale.app"
 DEST_DESKTOP="$HOME/Desktop/NOGA Gestionale.app"
 
-if [ ! -d "$SOURCE_APP" ]; then
-    echo "[!] Rigenerazione pacchetto NOGA Gestionale.app..."
-    if command -v python3 >/dev/null 2>&1; then
-        python3 "$DIR/crea_app_mac.py"
-    fi
-fi
-
-echo "[1/4] Configurazione permessi POSIX e rimozione quarantena Apple Gatekeeper..."
+echo "[1/5] Rimozione blocco quarantena Gatekeeper (xattr -cr) e permessi POSIX..."
+xattr -cr "$DIR" 2>/dev/null || true
 chmod -R +x "$SOURCE_APP/Contents/MacOS" 2>/dev/null || true
-xattr -cr "$SOURCE_APP" 2>/dev/null || true
+chmod +x "$DIR/Installa_NOGA_Mac.command" "$DIR/Avvia_NOGA_Mac.command" 2>/dev/null || true
 
-# Se Xcode Command Line Tools sono presenti, pre-compila il binario nativo Cocoa/WebKit dentro il bundle
+# Compilazione binario nativo Cocoa/WebKit se Command Line Tools sono presenti
 if xcode-select -p >/dev/null 2>&1 && [ -x "/usr/bin/clang" ]; then
-    echo "[2/4] Compilazione finestra nativa macOS (Cocoa + WebKit)..."
+    echo "[2/5] Compilazione finestra nativa macOS (Cocoa + WebKit)..."
     /usr/bin/clang -O2 -fobjc-arc -framework Cocoa -framework WebKit \
         "$SOURCE_APP/Contents/MacOS/noga_native_macos.m" \
         -o "$SOURCE_APP/Contents/MacOS/NOGA_NativeWindow" 2>/dev/null || true
     chmod +x "$SOURCE_APP/Contents/MacOS/NOGA_NativeWindow" 2>/dev/null || true
 else
-    echo "[2/4] Configurazione motore nativo Apple Cocoa/WebKit integrato..."
+    echo "[2/5] Configurazione motore nativo Apple Cocoa/WebKit integrato..."
 fi
 
-echo "[3/4] Installazione di 'NOGA Gestionale.app' in /Applications e sulla Scrivania..."
+echo "[3/5] Firma digitale locale Ad-Hoc per macOS (codesign)..."
+/usr/bin/codesign --force --deep --sign - "$SOURCE_APP" 2>/dev/null || true
+xattr -cr "$SOURCE_APP" 2>/dev/null || true
+
+echo "[4/5] Installazione di 'NOGA Gestionale.app' in /Applications e sulla Scrivania..."
 rm -rf "$DEST_APPLICATIONS" 2>/dev/null || true
 if cp -R "$SOURCE_APP" "$DEST_APPLICATIONS" 2>/dev/null; then
     chmod -R +x "$DEST_APPLICATIONS/Contents/MacOS" 2>/dev/null || true
     xattr -cr "$DEST_APPLICATIONS" 2>/dev/null || true
+    /usr/bin/codesign --force --deep --sign - "$DEST_APPLICATIONS" 2>/dev/null || true
     INSTALLED_APP="$DEST_APPLICATIONS"
     echo "      -> Installata con successo in: /Applications/NOGA Gestionale.app"
 else
@@ -52,17 +51,17 @@ if [ -d "$HOME/Desktop" ]; then
     cp -R "$SOURCE_APP" "$DEST_DESKTOP" 2>/dev/null || true
     chmod -R +x "$DEST_DESKTOP/Contents/MacOS" 2>/dev/null || true
     xattr -cr "$DEST_DESKTOP" 2>/dev/null || true
-    echo "      -> Copia rapida creata sulla Scrivania (Desktop)"
+    /usr/bin/codesign --force --deep --sign - "$DEST_DESKTOP" 2>/dev/null || true
+    echo "      -> Installata copia rapida sulla Scrivania (Desktop)"
 fi
 
-echo "[4/4] Avvio immediato di NOGA Gestionale..."
-open "$INSTALLED_APP"
+echo "[5/5] Avvio immediato di NOGA Gestionale..."
+open "$INSTALLED_APP" || "$INSTALLED_APP/Contents/MacOS/NOGA_Launcher" &
 
 echo ""
 echo "========================================================================"
-echo "  INSTALLAZIONE COMPLETATA!"
-echo "  Ora puoi aprire 'NOGA Gestionale' dal Launchpad, dalla cartella"
-echo "  Applicazioni o trascinarla nel Dock del tuo Mac."
+echo "  SBLOCCO E INSTALLAZIONE COMPLETATI!"
+echo "  L'app 'NOGA Gestionale' è ora autorizzata su questo Mac."
 echo "========================================================================"
 sleep 2
 exit 0

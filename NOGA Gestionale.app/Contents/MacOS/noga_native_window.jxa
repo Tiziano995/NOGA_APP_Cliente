@@ -1,13 +1,25 @@
 ObjC.import('Cocoa');
 ObjC.import('WebKit');
 
+ObjC.registerSubclass({
+    name: 'NogaWindowDelegate',
+    protocols: ['NSWindowDelegate'],
+    methods: {
+        'windowWillClose:': {
+            types: ['void', ['id']],
+            implementation: function(notification) {
+                $.NSApp.terminate(null);
+            }
+        }
+    }
+});
+
 function run(argv) {
     var htmlPath = argv.length > 0 ? argv[0] : "";
 
     var app = $.NSApplication.sharedApplication;
     app.setActivationPolicy($.NSApplicationActivationPolicyRegular);
 
-    // Barra Menu Nativa macOS (Cmd+Q, Cmd+C, Cmd+V, Cmd+X, Cmd+A)
     var menubar = $.NSMenu.alloc.init;
     var appMenuItem = $.NSMenuItem.alloc.init;
     menubar.addItem(appMenuItem);
@@ -56,8 +68,10 @@ function run(argv) {
     window.setMinSize($.NSMakeSize(1024, 680));
     window.setReleasedWhenClosed(false);
 
+    var winDelegate = $.NogaWindowDelegate.alloc.init;
+    window.setDelegate(winDelegate);
+
     var config = $.WKWebViewConfiguration.alloc.init;
-    // Garantisce che window.confirm funzioni anche senza WKUIDelegate in JXA
     var confirmScript = $.WKUserScript.alloc.initWithSourceInjectionTimeForMainFrameOnly(
         $("window.confirm = function(msg) { return true; };"),
         $.WKUserScriptInjectionTimeAtDocumentStart,
@@ -65,8 +79,9 @@ function run(argv) {
     );
     config.userContentController.addUserScript(confirmScript);
 
+    var contentBounds = window.contentView.bounds;
     var webView = $.WKWebView.alloc.initWithFrameConfiguration(
-        window.contentView.bounds,
+        contentBounds,
         config
     );
     webView.setAutoresizingMask($.NSViewWidthSizable | $.NSViewHeightSizable);
@@ -78,19 +93,5 @@ function run(argv) {
 
     window.makeKeyAndOrderFront(null);
     app.activateIgnoringOtherApps(true);
-
-    // Loop eventi nativo Cocoa finché la finestra resta aperta
-    var distantFuture = $.NSDate.distantFuture;
-    while (window.isVisible) {
-        var event = app.nextEventMatchingMaskUntilDateInModeDequeue(
-            $.NSEventMaskAny,
-            distantFuture,
-            $.NSDefaultRunLoopMode,
-            true
-        );
-        if (event) {
-            app.sendEvent(event);
-            app.updateWindows;
-        }
-    }
+    app.run;
 }

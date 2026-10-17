@@ -61,6 +61,24 @@ bash Installa_NOGA_Mac.command
 
 ---
 
+### Sblocco Permessi App di Terze Parti su macOS (Se il Mac blocca l'apertura)
+
+Essendo un'applicazione aziendale privata (non distribuita tramite Apple App Store), **macOS Gatekeeper** potrebbe bloccare il primo avvio se hai scaricato il file da internet. Per autorizzarla definitivamente sul tuo Mac hai **2 opzioni**:
+
+#### Opzione 1 (Istantanea da Terminale — Consigliata)
+Apri il **Terminale**, entra nella cartella del progetto e incolla questo comando (rimuove la quarantena Apple, applica la firma digitale locale `codesign` e avvia subito l'app):
+
+```bash
+xattr -cr "NOGA Gestionale.app" && chmod -R +x "NOGA Gestionale.app/Contents/MacOS" && codesign --force --deep --sign - "NOGA Gestionale.app" && open "NOGA Gestionale.app"
+```
+
+#### Opzione 2 (Dalle Impostazioni di Sistema del Mac)
+1. Fai **Tasto Destro (o Ctrl + Click)** su **`NOGA Gestionale.app`** &rarr; clicca su **Apri**.
+2. Se macOS mostra un avviso (*"NOGA Gestionale non può essere aperto perché proviene da uno sviluppatore non identificato"*), apri **Impostazioni di Sistema** &rarr; **Privacy e sicurezza**.
+3. Scorri in basso fino alla sezione **Sicurezza**: vedrai la scritta *"L'utilizzo di NOGA Gestionale è stato bloccato"* &rarr; clicca su **Apri comunque** e inserisci la password del Mac. Da quel momento in poi si aprirà sempre con un normale click.
+
+---
+
 ## Funzionalità Complete Incluse nell'App
 
 | Sezione | Descrizione Operativa |

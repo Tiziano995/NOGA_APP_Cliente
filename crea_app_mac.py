@@ -5,18 +5,9 @@ NOGA ROMA - GENERATORE APPLICAZIONE DESKTOP NATIVA macOS (.app)
 Costruisce il pacchetto applicativo nativo macOS:
   - "NOGA Gestionale.app" (vera applicazione desktop macOS con finestra nativa
     Cocoa NSWindow + WebKit WKWebView, pronta per /Applications e Dock)
-  - "Installa_NOGA_Mac.command" (installer automatico 1-click per macOS)
+  - "Installa_NOGA_Mac.command" (installer automatico 1-click per macOS con
+    sblocco Gatekeeper xattr -cr e firma locale ad-hoc codesign)
   - "Avvia_NOGA_Mac.command" (avvio diretto con doppio click da Finder)
-
-Caratteristiche architetturali:
-  - Finestra Desktop Nativa macOS (NSWindow + WKWebView): non apre Safari né
-    schede del browser e non mostra mai "Impossibile raggiungere il server".
-  - Motore Ibrido Autonomo: include sia il bundle `app_nativa_mac.html`
-    completamente autonomo con database locale persistente integrato, sia la
-    sincronizzazione automatica con `crm_ingrosso.db` in
-    `~/Library/Application Support/NOGA_Gestionale/crm_ingrosso.db`.
-  - Funziona su qualsiasi Mac (Apple Silicon M1/M2/M3/M4 e Intel) anche senza
-    Xcode Command Line Tools installati.
 """
 
 import os
@@ -30,7 +21,7 @@ APP_NAME = "NOGA Gestionale.app"
 EXECUTABLE_NAME = "NOGA_Launcher"
 NATIVE_BIN_NAME = "NOGA_NativeWindow"
 BUNDLE_IDENTIFIER = "it.nogaroma.crm.ingrosso"
-BUNDLE_VERSION = "4.0.0"
+BUNDLE_VERSION = "4.1.0"
 PORT = 8080
 
 FILE_CORE_PROGETTO = [
@@ -251,10 +242,24 @@ def genera_script_jxa_finestra_nativa():
     """
     Genera `noga_native_window.jxa` eseguibile con `/usr/bin/osascript -l JavaScript`
     (preinstallato da Apple su OGNI Mac, anche senza Xcode Command Line Tools).
-    Apre una vera finestra desktop macOS (`NSWindow` + `WKWebView`) con menu nativo.
+    Usa `$.NSApp.run` + `NogaWindowDelegate` per mantenere aperta la finestra nativa
+    Cocoa + WebKit (`NSWindow` + `WKWebView`).
     """
     return r"""ObjC.import('Cocoa');
 ObjC.import('WebKit');
+
+ObjC.registerSubclass({
+    name: 'NogaWindowDelegate',
+    protocols: ['NSWindowDelegate'],
+    methods: {
+        'windowWillClose:': {
+            types: ['void', ['id']],
+            implementation: function(notification) {
+                $.NSApp.terminate(null);
+            }
+        }
+    }
+});
 
 function run(argv) {
     var htmlPath = argv.length > 0 ? argv[0] : "";
@@ -262,7 +267,6 @@ function run(argv) {
     var app = $.NSApplication.sharedApplication;
     app.setActivationPolicy($.NSApplicationActivationPolicyRegular);
 
-    // Barra Menu Nativa macOS (Cmd+Q, Cmd+C, Cmd+V, Cmd+X, Cmd+A)
     var menubar = $.NSMenu.alloc.init;
     var appMenuItem = $.NSMenuItem.alloc.init;
     menubar.addItem(appMenuItem);
@@ -311,8 +315,10 @@ function run(argv) {
     window.setMinSize($.NSMakeSize(1024, 680));
     window.setReleasedWhenClosed(false);
 
+    var winDelegate = $.NogaWindowDelegate.alloc.init;
+    window.setDelegate(winDelegate);
+
     var config = $.WKWebViewConfiguration.alloc.init;
-    // Garantisce che window.confirm funzioni anche senza WKUIDelegate in JXA
     var confirmScript = $.WKUserScript.alloc.initWithSourceInjectionTimeForMainFrameOnly(
         $("window.confirm = function(msg) { return true; };"),
         $.WKUserScriptInjectionTimeAtDocumentStart,
@@ -320,8 +326,9 @@ function run(argv) {
     );
     config.userContentController.addUserScript(confirmScript);
 
+    var contentBounds = window.contentView.bounds;
     var webView = $.WKWebView.alloc.initWithFrameConfiguration(
-        window.contentView.bounds,
+        contentBounds,
         config
     );
     webView.setAutoresizingMask($.NSViewWidthSizable | $.NSViewHeightSizable);
@@ -333,21 +340,7 @@ function run(argv) {
 
     window.makeKeyAndOrderFront(null);
     app.activateIgnoringOtherApps(true);
-
-    // Loop eventi nativo Cocoa finché la finestra resta aperta
-    var distantFuture = $.NSDate.distantFuture;
-    while (window.isVisible) {
-        var event = app.nextEventMatchingMaskUntilDateInModeDequeue(
-            $.NSEventMaskAny,
-            distantFuture,
-            $.NSDefaultRunLoopMode,
-            true
-        );
-        if (event) {
-            app.sendEvent(event);
-            app.updateWindows;
-        }
-    }
+    app.run;
 }
 """
 
@@ -355,12 +348,6 @@ function run(argv) {
 def genera_script_launcher_macos():
     """
     Genera `NOGA Gestionale.app/Contents/MacOS/NOGA_Launcher`.
-    - Prepara la cartella dati scrivibile `~/Library/Application Support/NOGA_Gestionale`
-    - Avvia in background `app_server.py` se Python 3 reale è presente (senza far apparire popup Xcode)
-    - Compila al volo `NOGA_NativeWindow` (Cocoa/WebKit) se `clang` è presente, altrimenti
-      usa il motore nativo Apple JXA (`noga_native_window.jxa` con `NSWindow` + `WKWebView`)
-    - Carica direttamente `app_nativa_mac.html` dentro la finestra nativa macOS, così l'app
-      si apre SEMPRE come applicazione desktop nativa e NON mostra MAI "Impossibile raggiungere il server".
     """
     return f"""#!/bin/bash
 # ==============================================================================
@@ -390,7 +377,6 @@ if [ ! -f "$NOGA_DB_PATH" ]; then
     fi
 fi
 
-# Determina la directory contenente i file del gestionale
 if [ -f "$PARENT_PROJECT_DIR/app_server.py" ] && [ -f "$PARENT_PROJECT_DIR/index.html" ]; then
     WORK_DIR="$PARENT_PROJECT_DIR"
 else
@@ -427,7 +413,7 @@ if [ -n "$PYTHON_BIN" ] && [ -f "$WORK_DIR/app_server.py" ]; then
         cd "$WORK_DIR" || true
         nohup "$PYTHON_BIN" "$WORK_DIR/app_server.py" >"$DATA_DIR/noga_server.log" 2>&1 &
         SERVER_PID=$!
-        for _ in {{1..12}}; do
+        for _ in {{1..10}}; do
             if curl -s --max-time 1 "http://127.0.0.1:{PORT}/api/statistiche" >/dev/null 2>&1; then
                 break
             fi
@@ -444,13 +430,29 @@ elif [ "$HAS_CLT" -eq 1 ] && [ -x "/usr/bin/clang" ] && [ ! -x "$NATIVE_BIN" ]; 
     /usr/bin/clang -O2 -fobjc-arc -framework Cocoa -framework WebKit \
         "$MACOS_DIR/noga_native_macos.m" -o "$NATIVE_BIN" 2>/dev/null || true
     chmod +x "$NATIVE_BIN" 2>/dev/null || true
+    /usr/bin/codesign --force --sign - "$NATIVE_BIN" 2>/dev/null || true
 fi
 
 # Avvia la finestra desktop nativa macOS (NSWindow + WKWebView)
+START_TS=$(date +%s)
 if [ -x "$NATIVE_BIN" ]; then
     "$NATIVE_BIN" "$NATIVE_HTML"
 else
-    /usr/bin/osascript -l JavaScript "$MACOS_DIR/noga_native_window.jxa" "$NATIVE_HTML"
+    /usr/bin/osascript -l JavaScript "$MACOS_DIR/noga_native_window.jxa" "$NATIVE_HTML" 2>>"$DATA_DIR/noga_window.log"
+fi
+END_TS=$(date +%s)
+
+# Fallback di emergenza se né clang né JXA hanno potuto aprire la finestra grafica
+if [ $((END_TS - START_TS)) -lt 1 ]; then
+    if [ -d "/Applications/Google Chrome.app" ]; then
+        open -na "Google Chrome" --args --app="file://$NATIVE_HTML" --window-size=1480,920
+    elif [ -d "/Applications/Brave Browser.app" ]; then
+        open -na "Brave Browser" --args --app="file://$NATIVE_HTML" --window-size=1480,920
+    elif [ -d "/Applications/Microsoft Edge.app" ]; then
+        open -na "Microsoft Edge" --args --app="file://$NATIVE_HTML" --window-size=1480,920
+    else
+        open "$NATIVE_HTML"
+    fi
 fi
 
 # Chiudi il processo SQLite figlio alla chiusura della finestra dell'app
@@ -465,21 +467,21 @@ exit 0
 def genera_installer_1click_macos():
     """
     Genera `Installa_NOGA_Mac.command`:
-    Doppio click sul Mac per:
-      1. Rimuovere il blocco Gatekeeper (`xattr -cr`)
-      2. Compilare il binario nativo Cocoa/WebKit (se disponibile)
-      3. Installare `NOGA Gestionale.app` nella cartella `/Applications` (Applicazioni)
-         e creare un collegamento rapido anche sulla Scrivania (`~/Desktop`)
-      4. Avviare immediatamente l'app nativa macOS!
+      1. Rimuove tutti gli attributi di quarantena Apple Gatekeeper (`xattr -cr`)
+      2. Imposta i permessi di esecuzione POSIX (`chmod -R +x`)
+      3. Firma localmente il pacchetto `.app` con `codesign --force --deep --sign -`
+         (firma Ad-Hoc nativa di macOS che evita il blocco delle app di terze parti!)
+      4. Copia `NOGA Gestionale.app` in `/Applications` e sulla Scrivania (`~/Desktop`)
+      5. Avvia immediatamente l'app nativa macOS!
     """
     return f"""#!/bin/bash
 # ==============================================================================
-# NOGA ROMA — INSTALLATORE AUTOMATICO APP NATIVA macOS (1-CLICK)
+# NOGA ROMA — INSTALLATORE E SBLOCCO PERMESSI macOS (1-CLICK)
 # ==============================================================================
 
 clear
 echo "========================================================================"
-echo "  NOGA ROMA — INSTALLAZIONE APPLICAZIONE DESKTOP NATIVA macOS"
+echo "  NOGA ROMA — INSTALLAZIONE E SBLOCCO PERMESSI APP NATIVA macOS"
 echo "========================================================================"
 echo ""
 
@@ -488,33 +490,32 @@ SOURCE_APP="$DIR/{APP_NAME}"
 DEST_APPLICATIONS="/Applications/{APP_NAME}"
 DEST_DESKTOP="$HOME/Desktop/{APP_NAME}"
 
-if [ ! -d "$SOURCE_APP" ]; then
-    echo "[!] Rigenerazione pacchetto {APP_NAME}..."
-    if command -v python3 >/dev/null 2>&1; then
-        python3 "$DIR/crea_app_mac.py"
-    fi
-fi
-
-echo "[1/4] Configurazione permessi POSIX e rimozione quarantena Apple Gatekeeper..."
+echo "[1/5] Rimozione blocco quarantena Gatekeeper (xattr -cr) e permessi POSIX..."
+xattr -cr "$DIR" 2>/dev/null || true
 chmod -R +x "$SOURCE_APP/Contents/MacOS" 2>/dev/null || true
-xattr -cr "$SOURCE_APP" 2>/dev/null || true
+chmod +x "$DIR/Installa_NOGA_Mac.command" "$DIR/Avvia_NOGA_Mac.command" 2>/dev/null || true
 
-# Se Xcode Command Line Tools sono presenti, pre-compila il binario nativo Cocoa/WebKit dentro il bundle
+# Compilazione binario nativo Cocoa/WebKit se Command Line Tools sono presenti
 if xcode-select -p >/dev/null 2>&1 && [ -x "/usr/bin/clang" ]; then
-    echo "[2/4] Compilazione finestra nativa macOS (Cocoa + WebKit)..."
+    echo "[2/5] Compilazione finestra nativa macOS (Cocoa + WebKit)..."
     /usr/bin/clang -O2 -fobjc-arc -framework Cocoa -framework WebKit \\
         "$SOURCE_APP/Contents/MacOS/noga_native_macos.m" \\
         -o "$SOURCE_APP/Contents/MacOS/{NATIVE_BIN_NAME}" 2>/dev/null || true
     chmod +x "$SOURCE_APP/Contents/MacOS/{NATIVE_BIN_NAME}" 2>/dev/null || true
 else
-    echo "[2/4] Configurazione motore nativo Apple Cocoa/WebKit integrato..."
+    echo "[2/5] Configurazione motore nativo Apple Cocoa/WebKit integrato..."
 fi
 
-echo "[3/4] Installazione di '{APP_NAME}' in /Applications e sulla Scrivania..."
+echo "[3/5] Firma digitale locale Ad-Hoc per macOS (codesign)..."
+/usr/bin/codesign --force --deep --sign - "$SOURCE_APP" 2>/dev/null || true
+xattr -cr "$SOURCE_APP" 2>/dev/null || true
+
+echo "[4/5] Installazione di '{APP_NAME}' in /Applications e sulla Scrivania..."
 rm -rf "$DEST_APPLICATIONS" 2>/dev/null || true
 if cp -R "$SOURCE_APP" "$DEST_APPLICATIONS" 2>/dev/null; then
     chmod -R +x "$DEST_APPLICATIONS/Contents/MacOS" 2>/dev/null || true
     xattr -cr "$DEST_APPLICATIONS" 2>/dev/null || true
+    /usr/bin/codesign --force --deep --sign - "$DEST_APPLICATIONS" 2>/dev/null || true
     INSTALLED_APP="$DEST_APPLICATIONS"
     echo "      -> Installata con successo in: /Applications/{APP_NAME}"
 else
@@ -526,17 +527,17 @@ if [ -d "$HOME/Desktop" ]; then
     cp -R "$SOURCE_APP" "$DEST_DESKTOP" 2>/dev/null || true
     chmod -R +x "$DEST_DESKTOP/Contents/MacOS" 2>/dev/null || true
     xattr -cr "$DEST_DESKTOP" 2>/dev/null || true
-    echo "      -> Copia rapida creata sulla Scrivania (Desktop)"
+    /usr/bin/codesign --force --deep --sign - "$DEST_DESKTOP" 2>/dev/null || true
+    echo "      -> Installata copia rapida sulla Scrivania (Desktop)"
 fi
 
-echo "[4/4] Avvio immediato di NOGA Gestionale..."
-open "$INSTALLED_APP"
+echo "[5/5] Avvio immediato di NOGA Gestionale..."
+open "$INSTALLED_APP" || "$INSTALLED_APP/Contents/MacOS/{EXECUTABLE_NAME}" &
 
 echo ""
 echo "========================================================================"
-echo "  INSTALLAZIONE COMPLETATA!"
-echo "  Ora puoi aprire 'NOGA Gestionale' dal Launchpad, dalla cartella"
-echo "  Applicazioni o trascinarla nel Dock del tuo Mac."
+echo "  SBLOCCO E INSTALLAZIONE COMPLETATI!"
+echo "  L'app 'NOGA Gestionale' è ora autorizzata su questo Mac."
 echo "========================================================================"
 sleep 2
 exit 0
@@ -556,21 +557,16 @@ APP_BUNDLE="$DIR/{APP_NAME}"
 
 chmod -R +x "$APP_BUNDLE/Contents/MacOS" 2>/dev/null || true
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+/usr/bin/codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || true
 
-open "$APP_BUNDLE"
+open "$APP_BUNDLE" || "$APP_BUNDLE/Contents/MacOS/{EXECUTABLE_NAME}" &
 exit 0
 """
 
 
 def crea_bundle_app_macos(base_dir=None):
     """
-    Costruisce la cartella `NOGA Gestionale.app` completa di:
-      - `Contents/Info.plist`
-      - `Contents/MacOS/NOGA_Launcher`
-      - `Contents/MacOS/noga_native_macos.m`
-      - `Contents/MacOS/noga_native_window.jxa`
-      - `Contents/Resources/app/app_nativa_mac.html` (più tutti i file core)
-      - `Installa_NOGA_Mac.command` e `Avvia_NOGA_Mac.command`
+    Costruisce la cartella `NOGA Gestionale.app` completa.
     """
     if base_dir is None:
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -584,13 +580,12 @@ def crea_bundle_app_macos(base_dir=None):
     os.makedirs(macos_path, exist_ok=True)
     os.makedirs(embedded_app_path, exist_ok=True)
 
-    # 1. Generazione Info.plist standard Apple
     info_plist_data = {
         "CFBundleName": "NOGA Gestionale",
         "CFBundleDisplayName": "NOGA Gestionale",
         "CFBundleIdentifier": BUNDLE_IDENTIFIER,
         "CFBundleVersion": BUNDLE_VERSION,
-        "CFBundleShortVersionString": "4.0",
+        "CFBundleShortVersionString": "4.1",
         "CFBundlePackageType": "APPL",
         "CFBundleSignature": "????",
         "CFBundleExecutable": EXECUTABLE_NAME,
@@ -609,63 +604,40 @@ def crea_bundle_app_macos(base_dir=None):
     with open(plist_file, "wb") as fp:
         plistlib.dump(info_plist_data, fp)
 
-    # 2. File PkgInfo
     pkginfo_file = os.path.join(contents_path, "PkgInfo")
     _scrivi_file_unix(pkginfo_file, "APPL????", eseguibile=False)
 
-    # 3. Sorgente nativo Objective-C (Cocoa + WebKit) e script JXA nativo
     objc_path = os.path.join(macos_path, "noga_native_macos.m")
     _scrivi_file_unix(objc_path, genera_sorgente_objc_macos(), eseguibile=False)
 
     jxa_path = os.path.join(macos_path, "noga_native_window.jxa")
     _scrivi_file_unix(jxa_path, genera_script_jxa_finestra_nativa(), eseguibile=True)
 
-    # 4. Script eseguibile principale in Contents/MacOS/NOGA_Launcher
     launcher_path = os.path.join(macos_path, EXECUTABLE_NAME)
     _scrivi_file_unix(launcher_path, genera_script_launcher_macos(), eseguibile=True)
 
-    # 5. Copia dei file core in Contents/Resources/app
     for nome_file in FILE_CORE_PROGETTO:
         sorgente = os.path.join(base_dir, nome_file)
         if os.path.exists(sorgente):
             destinazione = os.path.join(embedded_app_path, nome_file)
             shutil.copy2(sorgente, destinazione)
 
-    # 6. Generazione del bundle monolitico `app_nativa_mac.html` per WKWebView
     html_nativo = genera_html_nativo_autonomo(base_dir)
     html_nativo_path = os.path.join(embedded_app_path, "app_nativa_mac.html")
     _scrivi_file_unix(html_nativo_path, html_nativo, eseguibile=False)
 
-    # 7. Creazione di Installa_NOGA_Mac.command e Avvia_NOGA_Mac.command
     installer_path = os.path.join(base_dir, "Installa_NOGA_Mac.command")
     _scrivi_file_unix(installer_path, genera_installer_1click_macos(), eseguibile=True)
 
     command_path = os.path.join(base_dir, "Avvia_NOGA_Mac.command")
     _scrivi_file_unix(command_path, genera_script_command_finder(), eseguibile=True)
 
-    # 8. Se eseguito direttamente su macOS (darwin), compila il binario nativo e rimuove quarantena
     if sys.platform == "darwin":
         try:
             subprocess.run(["chmod", "-R", "+x", macos_path], check=False)
             subprocess.run(["chmod", "+x", installer_path, command_path], check=False)
             subprocess.run(["xattr", "-cr", app_path], check=False)
-            if os.path.exists("/usr/bin/clang"):
-                bin_out = os.path.join(macos_path, NATIVE_BIN_NAME)
-                subprocess.run(
-                    [
-                        "/usr/bin/clang",
-                        "-O2",
-                        "-fobjc-arc",
-                        "-framework",
-                        "Cocoa",
-                        "-framework",
-                        "WebKit",
-                        objc_path,
-                        "-o",
-                        bin_out,
-                    ],
-                    check=False,
-                )
+            subprocess.run(["codesign", "--force", "--deep", "--sign", "-", app_path], check=False)
         except Exception:
             pass
 

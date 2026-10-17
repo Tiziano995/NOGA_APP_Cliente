@@ -1,16 +1,14 @@
 import json
 import os
-import sys
 import urllib.parse
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-import sqlite3
-from datetime import datetime
 
-# Importa le funzioni di business logic già consolidate in main.py
+# Importa le funzioni di business logic consolidate in main.py
 import main
 
 PORT = 8080
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+
 
 class GestionaleApiHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -27,6 +25,23 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_csv(self, csv_text, filename="noga_roma_contatti_ordini.csv"):
+        body = csv_text.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_json_body(self):
+        content_length = int(self.headers.get("Content-Length", 0))
+        post_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
+        if not post_data:
+            return {}
+        return json.loads(post_data.decode("utf-8"))
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -42,63 +57,93 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
         if path == "/api/contatti":
             filtro = query_params.get("filtro", ["tutti"])[0]
             termine = query_params.get("q", [""])[0].strip()
+            priorita_filtro = query_params.get("priorita", [""])[0].strip()
+            ordina_per = query_params.get("ordina", ["priorita"])[0].strip()
 
             if termine:
                 righe = main.cerca_contatti(termine)
             elif filtro == "da_chiamare":
                 righe = main.ottieni_contatti_da_chiamare()
+            elif filtro == "ordini_confermati":
+                righe = main.ottieni_ordini_confermati(ordina_per=ordina_per)
             else:
                 righe = main.ottieni_tutti_contatti()
 
-            # Serializza i record
-            contatti = []
-            for r in righe:
-                contatti.append({
-                    "id": r["id"],
-                    "azienda": r["azienda"],
-                    "telefono": r["telefono"],
-                    "citta": r["citta"],
-                    "note": r["note"],
-                    "chiamato": r["chiamato"],
-                    "esito": r["esito"],
-                    "data_aggiornamento": r["data_aggiornamento"]
-                })
+            contatti = [main._riga_a_dict(r) for r in righe]
+
+            if priorita_filtro in ("1", "2", "3"):
+                p_int = int(priorita_filtro)
+                contatti = [c for c in contatti if c["priorita"] == p_int]
+
+            if ordina_per == "totale_ordini":
+                contatti.sort(key=lambda x: (-x["totale_ordini"], x["priorita"], x["id"]))
+            elif ordina_per == "numero_ordini":
+                contatti.sort(key=lambda x: (-x["numero_ordini"], -x["totale_ordini"], x["priorita"], x["id"]))
+
             self._send_json({"ok": True, "data": contatti, "totale": len(contatti)})
+            return
+
+        elif path.startswith("/api/contatti/") and path.endswith("/ordini"):
+            parti = path.strip("/").split("/")
+            try:
+                id_contatto = int(parti[2])
+            except (IndexError, ValueError):
+                self._send_json({"ok": False, "errore": "ID contatto non valido"}, 400)
+                return
+
+            if not main.id_esiste(id_contatto):
+                self._send_json({"ok": False, "errore": "Contatto non trovato."}, 404)
+                return
+
+            ordini = main.ottieni_storico_ordini(id_contatto)
+            self._send_json({"ok": True, "data": ordini, "totale": len(ordini)})
             return
 
         elif path == "/api/statistiche":
             stats = main.ottieni_statistiche()
             if stats is None:
-                stats = {"totali": 0, "chiamati": 0, "interessati": 0, "rifiutati": 0, "da_contattare": 0}
-            
-            # Calcola anche metriche percentuali utili per la dashboard
+                stats = {
+                    "totali": 0,
+                    "chiamati": 0,
+                    "interessati": 0,
+                    "rifiutati": 0,
+                    "da_contattare": 0,
+                    "da_richiamare": 0,
+                    "in_attesa": 0,
+                    "fatturato_totale_ordini": 0.0,
+                    "valore_medio_ordine": 0.0,
+                    "totale_ordini_effettuati": 0,
+                    "analisi_regioni": [],
+                    "analisi_citta": [],
+                    "gruppi_duplicati": 0,
+                }
+
             totali = stats.get("totali", 0)
             chiamati = stats.get("chiamati", 0)
             interessati = stats.get("interessati", 0)
-            
+
             tasso_conversione = round((interessati / chiamati * 100), 1) if chiamati > 0 else 0.0
             percentuale_completamento = round((chiamati / totali * 100), 1) if totali > 0 else 0.0
-            
+
             stats["tasso_conversione"] = tasso_conversione
             stats["percentuale_completamento"] = percentuale_completamento
             self._send_json({"ok": True, "data": stats})
             return
 
+        elif path == "/api/duplicati":
+            gruppi = main.rileva_duplicati()
+            self._send_json({"ok": True, "data": gruppi, "totale_gruppi": len(gruppi)})
+            return
+
         elif path == "/api/esporta-json":
             contatti = main.ottieni_tutti_contatti()
-            lista_dati = []
-            for c in contatti:
-                lista_dati.append({
-                    "id": c["id"],
-                    "azienda": c["azienda"],
-                    "telefono": c["telefono"],
-                    "citta": c["citta"],
-                    "note": c["note"],
-                    "chiamato": c["chiamato"],
-                    "esito": c["esito"],
-                    "data_aggiornamento": c["data_aggiornamento"]
-                })
+            lista_dati = [main._riga_a_dict(c) for c in contatti]
             self._send_json({"ok": True, "data": lista_dati})
+            return
+
+        elif path == "/api/esporta-csv":
+            csv_content = main.genera_csv_contatti()
+            self._send_csv(csv_content, filename="noga_roma_contatti_ordini.csv")
             return
 
         # Per tutte le altre richieste, servi i file statici normalmente
@@ -108,20 +153,22 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        content_length = int(self.headers.get("Content-Length", 0))
-        post_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
-
         try:
-            payload = json.loads(post_data.decode("utf-8")) if post_data else {}
+            payload = self._read_json_body()
         except Exception:
             self._send_json({"ok": False, "errore": "JSON non valido"}, 400)
             return
 
+        # 1. Creazione nuovo contatto
         if path == "/api/contatti":
             azienda = str(payload.get("azienda", "")).strip()
+            referente = str(payload.get("referente", "")).strip()
             telefono = str(payload.get("telefono", "")).strip()
             citta = str(payload.get("citta", "")).strip()
+            regione = str(payload.get("regione", "")).strip()
             note = str(payload.get("note", "")).strip()
+            priorita = payload.get("priorita", 2)
+            totale_ordini = payload.get("totale_ordini", 0.0)
 
             if not azienda or not telefono:
                 self._send_json({"ok": False, "errore": "Azienda e Telefono sono obbligatori."}, 400)
@@ -131,15 +178,24 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "errore": f"Il numero '{telefono}' è già presente a sistema."}, 409)
                 return
 
-            nuovo_id = main.aggiungi_contatto(azienda, telefono, citta, note)
+            nuovo_id = main.aggiungi_contatto(
+                azienda=azienda,
+                telefono=telefono,
+                citta=citta,
+                note=note,
+                referente=referente,
+                regione=regione,
+                priorita=priorita,
+                totale_ordini=totale_ordini,
+            )
             if nuovo_id:
                 self._send_json({"ok": True, "id": nuovo_id, "messaggio": "Contatto creato con successo."}, 201)
             else:
                 self._send_json({"ok": False, "errore": "Errore durante il salvataggio nel database."}, 500)
             return
 
+        # 2. Registrazione chiamata + eventuale ordine in € + referente + priorità
         elif path.startswith("/api/contatti/") and path.endswith("/chiamata"):
-            # es: /api/contatti/3/chiamata
             parti = path.strip("/").split("/")
             try:
                 id_contatto = int(parti[2])
@@ -154,62 +210,103 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
             chiamato = payload.get("chiamato", "Sì")
             esito = payload.get("esito", "In attesa")
             nuove_note = payload.get("note", "")
+            importo_ordine = payload.get("importo_ordine", 0.0)
+            referente = payload.get("referente", None)
+            priorita = payload.get("priorita", None)
 
-            esito_valido = ["In attesa", "Interessato (Ordine preso)", "Non interessato (Rifiutato)", "Da richiamare"]
+            esito_valido = [
+                "In attesa",
+                "Interessato (Ordine preso)",
+                "Non interessato (Rifiutato)",
+                "Da richiamare",
+            ]
             if esito not in esito_valido:
                 self._send_json({"ok": False, "errore": f"Esito non valido. Ammessi: {esito_valido}"}, 400)
                 return
 
-            ok = main.registra_esito_chiamata(id_contatto, chiamato, esito, nuove_note)
+            ok = main.registra_esito_chiamata(
+                id_contatto=id_contatto,
+                chiamato=chiamato,
+                esito=esito,
+                nuove_note=nuove_note,
+                importo_ordine=importo_ordine,
+                referente=referente,
+                priorita=priorita,
+            )
             if ok:
                 self._send_json({"ok": True, "messaggio": "Esito chiamata aggiornato con successo."})
             else:
                 self._send_json({"ok": False, "errore": "Impossibile aggiornare l'esito."}, 500)
             return
 
-        elif path == "/api/importa-json":
-            # Può accettare un array di contatti direttamente nel payload
-            # oppure il percorso di un file locale
-            contatti = payload.get("contatti")
-            percorso_file = payload.get("percorso_file")
+        # 3. Aggiunta nuovo ordine nel tempo per un contatto esistente
+        elif path.startswith("/api/contatti/") and path.endswith("/ordini"):
+            parti = path.strip("/").split("/")
+            try:
+                id_contatto = int(parti[2])
+            except (IndexError, ValueError):
+                self._send_json({"ok": False, "errore": "ID contatto non valido"}, 400)
+                return
 
-            if contatti and isinstance(contatti, list):
-                # Importazione diretta dall'array inviato dal browser
-                conn = main.connetti()
-                cur = conn.cursor()
-                inseriti, duplicati, errori = 0, 0, 0
-                data_ora = datetime.now().strftime("%Y-%m-%d %H:%M")
+            if not main.id_esiste(id_contatto):
+                self._send_json({"ok": False, "errore": "Contatto non trovato."}, 404)
+                return
 
-                for c in contatti:
-                    az = str(c.get("azienda", "")).strip()
-                    tel = str(c.get("telefono", "")).strip()
-                    cit = str(c.get("citta", "")).strip()
-                    not_ = str(c.get("note", "")).strip()
+            importo = payload.get("importo", payload.get("importo_ordine", 0.0))
+            note_ordine = payload.get("note_ordine", payload.get("note", ""))
 
-                    if not az or not tel:
-                        errori += 1
-                        continue
-
-                    cur.execute("SELECT id FROM contatti_ingrosso WHERE telefono = ?", (tel,))
-                    if cur.fetchone():
-                        duplicati += 1
-                        continue
-
-                    cur.execute("""
-                        INSERT INTO contatti_ingrosso (azienda, telefono, citta, note, chiamato, esito, data_aggiornamento)
-                        VALUES (?, ?, ?, ?, 'No', 'In attesa', ?)
-                    """, (az, tel, cit, not_, data_ora))
-                    inseriti += 1
-
-                conn.commit()
-                conn.close()
+            risultato = main.aggiungi_nuovo_ordine(id_contatto, importo, note_ordine)
+            if risultato:
                 self._send_json({
                     "ok": True,
-                    "inseriti": inseriti,
-                    "duplicati": duplicati,
-                    "errori": errori,
-                    "totale": len(contatti)
-                })
+                    "messaggio": "Nuovo ordine registrato con successo.",
+                    "data": risultato,
+                }, 201)
+            else:
+                self._send_json({"ok": False, "errore": "Importo ordine non valido (deve essere > 0)."}, 400)
+            return
+
+        # 4. Modifica rapida priorità (1 = Alta, 2 = Normale, 3 = Bassa)
+        elif path.startswith("/api/contatti/") and path.endswith("/priorita"):
+            parti = path.strip("/").split("/")
+            try:
+                id_contatto = int(parti[2])
+            except (IndexError, ValueError):
+                self._send_json({"ok": False, "errore": "ID contatto non valido"}, 400)
+                return
+
+            if not main.id_esiste(id_contatto):
+                self._send_json({"ok": False, "errore": "Contatto non trovato."}, 404)
+                return
+
+            priorita = payload.get("priorita")
+            if main.aggiorna_priorita(id_contatto, priorita):
+                self._send_json({"ok": True, "messaggio": "Priorità aggiornata con successo."})
+            else:
+                self._send_json({"ok": False, "errore": "Valore priorità non valido (ammessi: 1, 2, 3)."}, 400)
+            return
+
+        # 5. Importazione universale multi-formato (JSON, CSV, TSV/Excel, TXT)
+        elif path in ("/api/importa", "/api/importa-json"):
+            contatti = payload.get("contatti")
+            contenuto_testo = payload.get("contenuto_testo", payload.get("testo", ""))
+            nome_file = payload.get("nome_file", "")
+            percorso_file = payload.get("percorso_file", "")
+
+            if isinstance(contenuto_testo, str) and contenuto_testo.strip():
+                res = main.importa_contatti_universale(contenuto_testo, nome_file=nome_file)
+                if "errore" in res:
+                    self._send_json({"ok": False, "errore": res["errore"]}, 400)
+                else:
+                    self._send_json({"ok": True, **res})
+                return
+
+            elif contatti and isinstance(contatti, list):
+                res = main._inserisci_lista_contatti_mappati(contatti, ignora_duplicati_telefono=True, formato_rilevato="JSON")
+                if "errore" in res:
+                    self._send_json({"ok": False, "errore": res["errore"]}, 400)
+                else:
+                    self._send_json({"ok": True, **res})
                 return
 
             elif percorso_file:
@@ -220,18 +317,96 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                     self._send_json({"ok": True, **res})
                 return
             else:
-                self._send_json({"ok": False, "errore": "Dati mancanti: inviare 'contatti' (array) o 'percorso_file'."}, 400)
+                self._send_json(
+                    {"ok": False, "errore": "Dati mancanti: inviare 'contenuto_testo', 'contatti' o 'percorso_file'."},
+                    400,
+                )
                 return
 
+        # 6. Fusione (Merge) di due schede contatto duplicate
+        elif path == "/api/duplicati/unisci":
+            try:
+                id_principale = int(payload.get("id_principale"))
+                id_secondario = int(payload.get("id_secondario"))
+            except (TypeError, ValueError):
+                self._send_json({"ok": False, "errore": "ID principale e secondario obbligatori e numerici."}, 400)
+                return
+
+            if id_principale == id_secondario:
+                self._send_json({"ok": False, "errore": "Impossibile unire un contatto con se stesso."}, 400)
+                return
+
+            if main.unisci_contatti(id_principale, id_secondario):
+                self._send_json({
+                    "ok": True,
+                    "messaggio": f"Scheda #{id_secondario} unita correttamente nella scheda #{id_principale}.",
+                })
+            else:
+                self._send_json({"ok": False, "errore": "Impossibile completare la fusione dei contatti."}, 404)
+            return
+
+        # 7. Ripristino dati demo ricchi (con ordini multipli, regioni e duplicati di test)
         elif path == "/api/ripristina-demo":
-            # Ripristina i dati demo di test caricando contatti_lead.json
-            conn = main.connetti()
-            cur = conn.cursor()
-            cur.execute("DELETE FROM contatti_ingrosso")
-            conn.commit()
-            conn.close()
-            res = main.importa_contatti_da_json(os.path.join(DIRECTORY, "contatti_lead.json"))
-            self._send_json({"ok": True, "messaggio": "Dati demo ripristinati.", "dettaglio": res})
+            res = main.ripristina_dati_demo()
+            if "errore" in res:
+                self._send_json({"ok": False, "errore": res["errore"]}, 500)
+            else:
+                self._send_json({"ok": True, "messaggio": "Dati demo ricchi ripristinati con successo.", "dettaglio": res})
+            return
+
+        self._send_json({"ok": False, "errore": "Endpoint non trovato"}, 404)
+
+    def do_PUT(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        try:
+            payload = self._read_json_body()
+        except Exception:
+            self._send_json({"ok": False, "errore": "JSON non valido"}, 400)
+            return
+
+        if path.startswith("/api/contatti/"):
+            parti = path.strip("/").split("/")
+            if len(parti) != 3:
+                self._send_json({"ok": False, "errore": "Percorso PUT non valido"}, 400)
+                return
+            try:
+                id_contatto = int(parti[2])
+            except ValueError:
+                self._send_json({"ok": False, "errore": "ID contatto non valido"}, 400)
+                return
+
+            if not main.id_esiste(id_contatto):
+                self._send_json({"ok": False, "errore": "Contatto non trovato."}, 404)
+                return
+
+            azienda = str(payload.get("azienda", "")).strip()
+            referente = str(payload.get("referente", "")).strip()
+            telefono = str(payload.get("telefono", "")).strip()
+            citta = str(payload.get("citta", "")).strip()
+            regione = str(payload.get("regione", "")).strip()
+            priorita = payload.get("priorita", 2)
+            note = payload.get("note", None)
+
+            if not azienda or not telefono:
+                self._send_json({"ok": False, "errore": "Azienda e Telefono sono obbligatori."}, 400)
+                return
+
+            ok = main.aggiorna_contatto(
+                id_contatto=id_contatto,
+                azienda=azienda,
+                referente=referente,
+                telefono=telefono,
+                citta=citta,
+                regione=regione,
+                priorita=priorita,
+                note=note,
+            )
+            if ok:
+                self._send_json({"ok": True, "messaggio": f"Contatto #{id_contatto} aggiornato con successo."})
+            else:
+                self._send_json({"ok": False, "errore": "Impossibile aggiornare il contatto."}, 500)
             return
 
         self._send_json({"ok": False, "errore": "Endpoint non trovato"}, 404)
@@ -267,17 +442,17 @@ def run():
     server_address = ("127.0.0.1", PORT)
     try:
         httpd = HTTPServer(server_address, GestionaleApiHandler)
-        print(f"[NOGA ROMA] Server Gestionale attivo su http://localhost:{PORT}")
+        print(f"[NOGA ROMA] Server Gestionale attivo su http://localhost:{PORT}/index.html")
         httpd.serve_forever()
     except OSError as e:
         print(f"Errore avvio server su porta {PORT}: {e}")
-        # Prova su porta 8081 se 8080 fosse occupata
         try:
             httpd = HTTPServer(("127.0.0.1", 8081), GestionaleApiHandler)
-            print(f"[NOGA ROMA] Server Gestionale attivo su http://localhost:8081")
+            print("[NOGA ROMA] Server Gestionale attivo su http://localhost:8081/index.html")
             httpd.serve_forever()
         except Exception as e2:
             print(f"Errore definitivo: {e2}")
+
 
 if __name__ == "__main__":
     run()

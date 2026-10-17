@@ -1,10 +1,11 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 
-@interface NogaAppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, WKUIDelegate, WKNavigationDelegate>
+@interface NogaAppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler>
 @property (strong, nonatomic) NSWindow *window;
 @property (strong, nonatomic) WKWebView *webView;
 @property (copy, nonatomic) NSString *targetPathOrUrl;
+@property (copy, nonatomic) NSString *persistentJsonPath;
 @end
 
 @implementation NogaAppDelegate
@@ -38,6 +39,16 @@
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     [self setupMenuBar];
 
+    // Imposta l'icona ufficiale "NA" NOGA ROMA nel Dock e nella finestra
+    NSString *appDir = [[self.targetPathOrUrl stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
+    NSString *icnsPath = [appDir stringByAppendingPathComponent:@"AppIcon.icns"];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:icnsPath]) {
+        NSImage *iconImg = [[NSImage alloc] initWithContentsOfFile:icnsPath];
+        if (iconImg) {
+            [NSApp setApplicationIconImage:iconImg];
+        }
+    }
+
     NSRect screenFrame = [[NSScreen mainScreen] visibleFrame];
     CGFloat width = MIN(1480.0, screenFrame.size.width * 0.94);
     CGFloat height = MIN(920.0, screenFrame.size.height * 0.92);
@@ -68,6 +79,23 @@
         [config.preferences setValue:@YES forKey:@"allowFileAccessFromFileURLs"];
     } @catch (NSException *exception) {}
 
+    // Registra il canale di salvataggio persistente su disco
+    [config.userContentController addScriptMessageHandler:self name:@"nogaSaveDisk"];
+
+    // Carica i dati salvati su disco in ~/Library/Application Support/NOGA_Gestionale/noga_dati_persistenti.json
+    if (self.persistentJsonPath && [[NSFileManager defaultManager] fileExistsAtPath:self.persistentJsonPath]) {
+        NSString *savedJson = [NSString stringWithContentsOfFile:self.persistentJsonPath
+                                                        encoding:NSUTF8StringEncoding
+                                                           error:nil];
+        if (savedJson && [savedJson length] > 2) {
+            NSString *jsSource = [NSString stringWithFormat:@"window.__NOGA_DISK_DB__ = %@;", savedJson];
+            WKUserScript *diskScript = [[WKUserScript alloc] initWithSource:jsSource
+                                                              injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                                           forMainFrameOnly:NO];
+            [config.userContentController addUserScript:diskScript];
+        }
+    }
+
     self.webView = [[WKWebView alloc] initWithFrame:[[self.window contentView] bounds]
                                       configuration:config];
     [self.webView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
@@ -88,6 +116,19 @@
 
     [self.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (void)userContentController:(WKUserContentController *)userContentController
+      didReceiveScriptMessage:(WKScriptMessage *)message {
+    if ([message.name isEqualToString:@"nogaSaveDisk"] && [message.body isKindOfClass:[NSString class]]) {
+        NSString *jsonStr = (NSString *)message.body;
+        if (self.persistentJsonPath && [jsonStr length] > 2) {
+            [jsonStr writeToFile:self.persistentJsonPath
+                      atomically:YES
+                        encoding:NSUTF8StringEncoding
+                           error:nil];
+        }
+    }
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
@@ -126,7 +167,15 @@ int main(int argc, const char * argv[]) {
         NSApplication *app = [NSApplication sharedApplication];
         [app setActivationPolicy:NSApplicationActivationPolicyRegular];
 
+        NSString *supportDir = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/NOGA_Gestionale"];
+        [[NSFileManager defaultManager] createDirectoryAtPath:supportDir
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:nil];
+
         NogaAppDelegate *delegate = [[NogaAppDelegate alloc] init];
+        delegate.persistentJsonPath = [supportDir stringByAppendingPathComponent:@"noga_dati_persistenti.json"];
+
         if (argc > 1) {
             delegate.targetPathOrUrl = [NSString stringWithUTF8String:argv[1]];
         } else {

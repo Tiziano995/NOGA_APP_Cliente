@@ -322,7 +322,36 @@ async function loadData() {
     if (!res.ok) throw new Error("Server non attivo");
     const json = await res.json();
     if (json.ok && Array.isArray(json.data)) {
-      state.contatti = json.data.map(arricchisciContattoClient);
+      let listaServer = json.data;
+      const snapshotLocale = ottieniSnapshotLocaleSalvato();
+      if (snapshotLocale && Array.isArray(snapshotLocale) && snapshotLocale.length > 0) {
+        const telefoniServer = new Set(listaServer.map(c => normalizzaTelefonoClient(c.telefono)));
+        const mancantiSuServer = snapshotLocale.filter(c => {
+          const tel = normalizzaTelefonoClient(c.telefono);
+          return tel && !telefoniServer.has(tel);
+        });
+        if (mancantiSuServer.length > 0) {
+          try {
+            await fetchConTimeout(`${API_BASE}/api/importa`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contenuto: JSON.stringify(mancantiSuServer),
+                formato: "json"
+              })
+            });
+            const resSync = await fetchConTimeout(`${API_BASE}/api/contatti`);
+            const jsonSync = await resSync.json();
+            if (jsonSync.ok && Array.isArray(jsonSync.data)) {
+              listaServer = jsonSync.data;
+            }
+          } catch (syncErr) {
+            // Se la sincronizzazione fallisce mantieni unione in memoria
+            listaServer = [...listaServer, ...mancantiSuServer];
+          }
+        }
+      }
+      state.contatti = listaServer.map(arricchisciContattoClient);
       state.isApiAvailable = true;
       salvaStorageLocale();
       aggiornaBadgeStatoDb(true);
@@ -738,30 +767,52 @@ function generaDatasetDemoCompleto() {
   ].map(arricchisciContattoClient);
 }
 
-function caricaDatiDefaultLocali() {
+function ottieniSnapshotLocaleSalvato() {
+  if (window.__NOGA_DISK_DB__ && Array.isArray(window.__NOGA_DISK_DB__) && window.__NOGA_DISK_DB__.length > 0) {
+    return window.__NOGA_DISK_DB__;
+  }
   const salvati = localStorage.getItem(STORAGE_KEY_CONTATTI);
   if (salvati) {
     try {
       const parsed = JSON.parse(salvati);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        state.contatti = parsed.map(arricchisciContattoClient);
-        ricalcolaTuttoInLocale();
-        return;
+        return parsed;
       }
     } catch (e) {
-      // Rigenera dataset demo
+      // Ignora JSON corrotto
     }
+  }
+  return null;
+}
+
+function caricaDatiDefaultLocali() {
+  const salvati = ottieniSnapshotLocaleSalvato();
+  if (salvati) {
+    state.contatti = salvati.map(arricchisciContattoClient);
+    salvaStorageLocale();
+    ricalcolaTuttoInLocale();
+    return;
   }
 
   state.contatti = generaDatasetDemoCompleto();
+  salvaStorageLocale();
   ricalcolaTuttoInLocale();
 }
 
 function salvaStorageLocale() {
+  const serialized = JSON.stringify(state.contatti);
+  window.__NOGA_DISK_DB__ = state.contatti;
   try {
-    localStorage.setItem(STORAGE_KEY_CONTATTI, JSON.stringify(state.contatti));
+    localStorage.setItem(STORAGE_KEY_CONTATTI, serialized);
   } catch (e) {
-    // Storage pieno o non disponibile
+    // Storage non disponibile
+  }
+  try {
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nogaSaveDisk) {
+      window.webkit.messageHandlers.nogaSaveDisk.postMessage(serialized);
+    }
+  } catch (e) {
+    // Bridge nativo non attivo
   }
 }
 

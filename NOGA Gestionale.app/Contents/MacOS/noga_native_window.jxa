@@ -1,14 +1,33 @@
 ObjC.import('Cocoa');
 ObjC.import('WebKit');
 
+var GLOBAL_JSON_PATH = "";
+
 ObjC.registerSubclass({
     name: 'NogaWindowDelegate',
-    protocols: ['NSWindowDelegate'],
+    protocols: ['NSWindowDelegate', 'WKScriptMessageHandler'],
     methods: {
         'windowWillClose:': {
             types: ['void', ['id']],
             implementation: function(notification) {
                 $.NSApp.terminate(null);
+            }
+        },
+        'userContentController:didReceiveScriptMessage:': {
+            types: ['void', ['id', 'id']],
+            implementation: function(controller, message) {
+                try {
+                    var name = ObjC.unwrap(message.name);
+                    if (name === 'nogaSaveDisk' && GLOBAL_JSON_PATH) {
+                        var bodyStr = message.body;
+                        bodyStr.writeToFileAtomicallyEncodingError(
+                            $(GLOBAL_JSON_PATH),
+                            true,
+                            $.NSUTF8StringEncoding,
+                            null
+                        );
+                    }
+                } catch (e) {}
             }
         }
     }
@@ -16,9 +35,27 @@ ObjC.registerSubclass({
 
 function run(argv) {
     var htmlPath = argv.length > 0 ? argv[0] : "";
+    var supportDir = ObjC.unwrap($.NSHomeDirectory().stringByAppendingPathComponent($("Library/Application Support/NOGA_Gestionale")));
+    $.NSFileManager.defaultManager.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(
+        $(supportDir),
+        true,
+        null,
+        null
+    );
+    GLOBAL_JSON_PATH = supportDir + "/noga_dati_persistenti.json";
 
     var app = $.NSApplication.sharedApplication;
     app.setActivationPolicy($.NSApplicationActivationPolicyRegular);
+
+    // Imposta icona "NA" NOGA ROMA nel Dock
+    var resourcesDir = $(htmlPath).stringByDeletingLastPathComponent.stringByDeletingLastPathComponent;
+    var icnsPath = resourcesDir.stringByAppendingPathComponent($("AppIcon.icns"));
+    if ($.NSFileManager.defaultManager.fileExistsAtPath(icnsPath)) {
+        var iconImg = $.NSImage.alloc.initWithContentsOfFile(icnsPath);
+        if (iconImg) {
+            app.setApplicationIconImage(iconImg);
+        }
+    }
 
     var menubar = $.NSMenu.alloc.init;
     var appMenuItem = $.NSMenuItem.alloc.init;
@@ -72,6 +109,26 @@ function run(argv) {
     window.setDelegate(winDelegate);
 
     var config = $.WKWebViewConfiguration.alloc.init;
+    config.userContentController.addScriptMessageHandlerName(winDelegate, $("nogaSaveDisk"));
+
+    // Carica i dati salvati su disco in ~/Library/Application Support/NOGA_Gestionale/noga_dati_persistenti.json
+    if ($.NSFileManager.defaultManager.fileExistsAtPath($(GLOBAL_JSON_PATH))) {
+        var savedJson = $.NSString.stringWithContentsOfFileEncodingError(
+            $(GLOBAL_JSON_PATH),
+            $.NSUTF8StringEncoding,
+            null
+        );
+        if (savedJson && ObjC.unwrap(savedJson).length > 2) {
+            var diskBoot = "window.__NOGA_DISK_DB__ = " + ObjC.unwrap(savedJson) + ";";
+            var diskScript = $.WKUserScript.alloc.initWithSourceInjectionTimeForMainFrameOnly(
+                $(diskBoot),
+                $.WKUserScriptInjectionTimeAtDocumentStart,
+                false
+            );
+            config.userContentController.addUserScript(diskScript);
+        }
+    }
+
     var confirmScript = $.WKUserScript.alloc.initWithSourceInjectionTimeForMainFrameOnly(
         $("window.confirm = function(msg) { return true; };"),
         $.WKUserScriptInjectionTimeAtDocumentStart,

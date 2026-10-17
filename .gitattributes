@@ -11,3 +11,5 @@
 NOGA_Launcher text eol=lf
 PkgInfo binary
 *.db binary
+*.icns binary
+*.png binary

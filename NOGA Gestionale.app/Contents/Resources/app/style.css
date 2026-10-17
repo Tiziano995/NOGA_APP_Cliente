@@ -213,6 +213,31 @@ body {
   flex-wrap: wrap;
 }
 
+.brand-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.brand-monogram {
+  width: 42px;
+  height: 42px;
+  background-color: var(--text-noir);
+  color: var(--bg-sand);
+  border: 1px solid var(--text-noir);
+  outline: 1px solid var(--border-light);
+  outline-offset: -4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-main);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  user-select: none;
+  flex-shrink: 0;
+}
+
 .brand-area {
   display: flex;
   flex-direction: column;

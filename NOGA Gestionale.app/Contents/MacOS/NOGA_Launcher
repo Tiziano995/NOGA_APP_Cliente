@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # NOGA ROMA - Native macOS Desktop Application Launcher
-# Finestra Nativa Cocoa (NSWindow + WKWebView) — Zero Browser / Zero Server Error
+# Finestra Nativa Cocoa (NSWindow + WKWebView) + Dati Persistenti Protetti
 # ==============================================================================
 
 export LANG="it_IT.UTF-8"
@@ -13,17 +13,25 @@ CONTENTS_DIR="$(cd "$MACOS_DIR/.." && pwd)"
 BUNDLE_APP_DIR="$CONTENTS_DIR/Resources/app"
 PARENT_PROJECT_DIR="$(cd "$CONTENTS_DIR/../.." && pwd)"
 
-# Cartella dati persistente scrivibile su macOS (compatibile con /Applications e Gatekeeper)
+# 1. Cartella Dati Utente Protetta (fuori dal bundle .app così gli aggiornamenti non cancellano MAI nulla)
 DATA_DIR="$HOME/Library/Application Support/NOGA_Gestionale"
 mkdir -p "$DATA_DIR"
 export NOGA_DB_PATH="$DATA_DIR/crm_ingrosso.db"
 
+# Copia il DB iniziale SOLO al primissimo avvio assoluto (se non esiste già)
 if [ ! -f "$NOGA_DB_PATH" ]; then
     if [ -f "$PARENT_PROJECT_DIR/crm_ingrosso.db" ]; then
         cp -f "$PARENT_PROJECT_DIR/crm_ingrosso.db" "$NOGA_DB_PATH" 2>/dev/null || true
     elif [ -f "$BUNDLE_APP_DIR/crm_ingrosso.db" ]; then
         cp -f "$BUNDLE_APP_DIR/crm_ingrosso.db" "$NOGA_DB_PATH" 2>/dev/null || true
     fi
+fi
+
+# 2. Controllo auto-aggiornamento silenzioso in background (se presente repository Git)
+if [ -d "$PARENT_PROJECT_DIR/.git" ] && command -v git >/dev/null 2>&1; then
+    (
+        cd "$PARENT_PROJECT_DIR" && git pull --ff-only >/dev/null 2>&1 || true
+    ) &
 fi
 
 if [ -f "$PARENT_PROJECT_DIR/app_server.py" ] && [ -f "$PARENT_PROJECT_DIR/index.html" ]; then
@@ -71,8 +79,8 @@ if [ -n "$PYTHON_BIN" ] && [ -f "$WORK_DIR/app_server.py" ]; then
     fi
 fi
 
-# Compila l'eseguibile nativo Cocoa/WebKit se i Command Line Tools sono presenti
-NATIVE_BIN="$DATA_DIR/NOGA_NativeWindow"
+# Compila l'eseguibile nativo Cocoa/WebKit (aggiornandolo se il sorgente .m è più recente)
+NATIVE_BIN="$DATA_DIR/NOGA_NativeWindow_v42"
 if [ -x "$MACOS_DIR/NOGA_NativeWindow" ]; then
     NATIVE_BIN="$MACOS_DIR/NOGA_NativeWindow"
 elif [ "$HAS_CLT" -eq 1 ] && [ -x "/usr/bin/clang" ] && [ ! -x "$NATIVE_BIN" ]; then

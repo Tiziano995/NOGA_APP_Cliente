@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="AppIcon.png">
 
   <style>
 /**
@@ -225,6 +226,31 @@ body {
   align-items: center;
   gap: 1.25rem;
   flex-wrap: wrap;
+}
+
+.brand-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.brand-monogram {
+  width: 42px;
+  height: 42px;
+  background-color: var(--text-noir);
+  color: var(--bg-sand);
+  border: 1px solid var(--text-noir);
+  outline: 1px solid var(--border-light);
+  outline-offset: -4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-main);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  user-select: none;
+  flex-shrink: 0;
 }
 
 .brand-area {
@@ -2461,9 +2487,12 @@ textarea.form-control {
   <!-- Header Principale Minimal & Luxury -->
   <header class="main-header">
     <div class="header-inner">
-      <div class="brand-area">
-        <h1 class="brand-title">NOGA ROMA</h1>
-        <span class="brand-subtitle">DIREZIONE COMMERCIALE B2B &amp; OUTREACH</span>
+      <div class="brand-identity">
+        <div class="brand-monogram" aria-hidden="true">NA</div>
+        <div class="brand-area">
+          <h1 class="brand-title">NOGA ROMA</h1>
+          <span class="brand-subtitle">DIREZIONE COMMERCIALE B2B &amp; OUTREACH</span>
+        </div>
       </div>
 
       <div class="header-actions">
@@ -3982,7 +4011,36 @@ async function loadData() {
     if (!res.ok) throw new Error("Server non attivo");
     const json = await res.json();
     if (json.ok && Array.isArray(json.data)) {
-      state.contatti = json.data.map(arricchisciContattoClient);
+      let listaServer = json.data;
+      const snapshotLocale = ottieniSnapshotLocaleSalvato();
+      if (snapshotLocale && Array.isArray(snapshotLocale) && snapshotLocale.length > 0) {
+        const telefoniServer = new Set(listaServer.map(c => normalizzaTelefonoClient(c.telefono)));
+        const mancantiSuServer = snapshotLocale.filter(c => {
+          const tel = normalizzaTelefonoClient(c.telefono);
+          return tel && !telefoniServer.has(tel);
+        });
+        if (mancantiSuServer.length > 0) {
+          try {
+            await fetchConTimeout(`${API_BASE}/api/importa`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contenuto: JSON.stringify(mancantiSuServer),
+                formato: "json"
+              })
+            });
+            const resSync = await fetchConTimeout(`${API_BASE}/api/contatti`);
+            const jsonSync = await resSync.json();
+            if (jsonSync.ok && Array.isArray(jsonSync.data)) {
+              listaServer = jsonSync.data;
+            }
+          } catch (syncErr) {
+            // Se la sincronizzazione fallisce mantieni unione in memoria
+            listaServer = [...listaServer, ...mancantiSuServer];
+          }
+        }
+      }
+      state.contatti = listaServer.map(arricchisciContattoClient);
       state.isApiAvailable = true;
       salvaStorageLocale();
       aggiornaBadgeStatoDb(true);
@@ -4398,30 +4456,52 @@ function generaDatasetDemoCompleto() {
   ].map(arricchisciContattoClient);
 }
 
-function caricaDatiDefaultLocali() {
+function ottieniSnapshotLocaleSalvato() {
+  if (window.__NOGA_DISK_DB__ && Array.isArray(window.__NOGA_DISK_DB__) && window.__NOGA_DISK_DB__.length > 0) {
+    return window.__NOGA_DISK_DB__;
+  }
   const salvati = localStorage.getItem(STORAGE_KEY_CONTATTI);
   if (salvati) {
     try {
       const parsed = JSON.parse(salvati);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        state.contatti = parsed.map(arricchisciContattoClient);
-        ricalcolaTuttoInLocale();
-        return;
+        return parsed;
       }
     } catch (e) {
-      // Rigenera dataset demo
+      // Ignora JSON corrotto
     }
+  }
+  return null;
+}
+
+function caricaDatiDefaultLocali() {
+  const salvati = ottieniSnapshotLocaleSalvato();
+  if (salvati) {
+    state.contatti = salvati.map(arricchisciContattoClient);
+    salvaStorageLocale();
+    ricalcolaTuttoInLocale();
+    return;
   }
 
   state.contatti = generaDatasetDemoCompleto();
+  salvaStorageLocale();
   ricalcolaTuttoInLocale();
 }
 
 function salvaStorageLocale() {
+  const serialized = JSON.stringify(state.contatti);
+  window.__NOGA_DISK_DB__ = state.contatti;
   try {
-    localStorage.setItem(STORAGE_KEY_CONTATTI, JSON.stringify(state.contatti));
+    localStorage.setItem(STORAGE_KEY_CONTATTI, serialized);
   } catch (e) {
-    // Storage pieno o non disponibile
+    // Storage non disponibile
+  }
+  try {
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nogaSaveDisk) {
+      window.webkit.messageHandlers.nogaSaveDisk.postMessage(serialized);
+    }
+  } catch (e) {
+    // Bridge nativo non attivo
   }
 }
 

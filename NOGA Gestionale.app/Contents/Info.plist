@@ -6,6 +6,10 @@
 	<string>NOGA Gestionale</string>
 	<key>CFBundleExecutable</key>
 	<string>NOGA_Launcher</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon.icns</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>it.nogaroma.crm.ingrosso</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -15,11 +19,11 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>4.1</string>
+	<string>4.2</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>4.1.0</string>
+	<string>4.2.0</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.business</string>
 	<key>LSMinimumSystemVersion</key>

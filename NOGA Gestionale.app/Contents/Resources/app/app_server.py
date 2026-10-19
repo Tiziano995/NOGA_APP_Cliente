@@ -426,7 +426,8 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
         # 8. Sincronizzazione snapshot client (persistenza unificata post-standby / offline)
         elif path == "/api/sincronizza-snapshot":
             lista_contatti = payload.get("contatti", [])
-            res = main.sincronizza_snapshot_client(lista_contatti)
+            telefoni_eliminati = payload.get("eliminati", [])
+            res = main.sincronizza_snapshot_client(lista_contatti, telefoni_eliminati=telefoni_eliminati)
             if not res.get("ok"):
                 self._send_json({"ok": False, "errore": res.get("errore", "Errore sincronizzazione")}, 400)
             else:

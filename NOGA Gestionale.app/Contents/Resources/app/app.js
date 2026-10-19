@@ -139,22 +139,32 @@ const state = {
   selectedContact: null,
   pendingDeleteId: null,
   isFormDirty: false,
-  isApiAvailable: false
+  isApiAvailable: false,
+  deletedTelefoni: new Set(JSON.parse(localStorage.getItem("noga_deleted_telefoni") || "[]"))
 };
 
 const API_BASE = window.location.origin.startsWith("http") ? "" : "http://127.0.0.1:8080";
+
+function tracciaTelefonoEliminato(telefono) {
+  const norm = normalizzaTelefonoClient(telefono);
+  if (norm) {
+    if (!state.deletedTelefoni) state.deletedTelefoni = new Set();
+    state.deletedTelefoni.add(norm);
+    try {
+      localStorage.setItem("noga_deleted_telefoni", JSON.stringify([...state.deletedTelefoni]));
+    } catch (e) {}
+  }
+}
 
 // Hook globale richiamato da macOS Cocoa/WebKit al risveglio dallo standby (NSWorkspaceDidWakeNotification)
 window.__nogaRipristinaDaDisco = function(datiDisco) {
   if (Array.isArray(datiDisco)) {
     const puliti = filtraContattiNonDemo(datiDisco);
     window.__NOGA_DISK_DB__ = puliti;
-    if (!state.contatti || state.contatti.length === 0 || puliti.length >= state.contatti.length) {
-      state.contatti = puliti.map(arricchisciContattoClient);
-      salvaStorageLocale();
-      ricalcolaTuttoInLocale();
-      renderAll();
-    }
+    state.contatti = puliti.map(arricchisciContattoClient);
+    salvaStorageLocale();
+    ricalcolaTuttoInLocale();
+    renderAll();
   }
 };
 
@@ -411,7 +421,10 @@ async function loadData(options = {}) {
           await fetchConTimeout(`${API_BASE}/api/sincronizza-snapshot`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contatti: snapshotLocale })
+            body: JSON.stringify({
+              contatti: snapshotLocale,
+              eliminati: Array.from(state.deletedTelefoni || [])
+            })
           });
           const resSync = await fetchConTimeout(`${API_BASE}/api/contatti`);
           const jsonSync = await resSync.json();
@@ -426,6 +439,19 @@ async function loadData(options = {}) {
           });
           listaServer = [...listaServer, ...mancanti];
         }
+      }
+
+      // Filtra sempre contatti eliminati localmente per evitare resurrezioni
+      if (state.deletedTelefoni && state.deletedTelefoni.size > 0) {
+        if (Array.isArray(snapshotLocale)) {
+          snapshotLocale.forEach(c => {
+            const tel = normalizzaTelefonoClient(c.telefono);
+            if (tel && state.deletedTelefoni.has(tel)) {
+              state.deletedTelefoni.delete(tel);
+            }
+          });
+        }
+        listaServer = listaServer.filter(c => !state.deletedTelefoni.has(normalizzaTelefonoClient(c.telefono)));
       }
 
       // Preserva lo storico ordini dettagliato dai contatti locali se presente
@@ -989,7 +1015,7 @@ function renderCodaTable() {
       <td>${creaBadgeEsito(c.esito)}</td>
       <td>
         <div class="row-actions">
-          <button type="button" class="btn btn-primary btn-xs" onclick="apriModalEsito(${c.id})">
+          <button type="button" class="btn btn-primary btn-xs btn-action-primary" onclick="apriModalEsito(${c.id})">
             Esito Chiamata
           </button>
           <button type="button" class="action-icon-btn" title="Pianifica / Sposta Ricontatto" onclick="apriModalPianifica(${c.id})">
@@ -1206,7 +1232,7 @@ function renderCalendarAgendaList() {
       : "Nessuna nota aggiuntiva";
 
     return `
-      <div class="agenda-card ${st}">
+      <div class="agenda-card agenda-item ${st}">
         <div class="agenda-card-top">
           <div class="agenda-time-group">
             <span class="agenda-time-badge">${escapeHtml(formatDateIT(dataParte))} · ${escapeHtml(oraParte)}</span>
@@ -1251,7 +1277,7 @@ function renderCalendarAgendaList() {
             </button>
           </div>
           <div class="agenda-actions-right">
-            <button type="button" class="btn btn-success-outline btn-xs" onclick="segnaRicontattoCompletato(${c.id})" title="Segna il ricontatto come completato e rimuovilo dall'agenda">
+            <button type="button" class="btn btn-success-outline btn-xs btn-agenda-done" onclick="segnaRicontattoCompletato(${c.id})" title="Segna il ricontatto come completato e rimuovilo dall'agenda">
               Segna Completato
             </button>
           </div>
@@ -1556,7 +1582,7 @@ function renderDuplicatiTab() {
   wrapper.innerHTML = state.duplicati.map(gruppo => {
     const principale = gruppo.contatti[0];
     return `
-      <div class="duplicate-group-card">
+      <div class="duplicate-group-card dup-group-card">
         <div class="dup-group-header">
           <div>
             <span class="dup-group-title">${escapeHtml(gruppo.id_gruppo)} &mdash; ${escapeHtml(gruppo.motivo)}</span>
@@ -1678,12 +1704,34 @@ function apriModalPianifica(idContatto) {
   document.getElementById("modalPianificaBackdrop").classList.add("open");
 }
 
-function chiudiModalPianifica() {
-  document.getElementById("modalPianificaBackdrop").classList.remove("open");
+function chiudiModalPianifica(forza = false) {
+  const modal = document.getElementById("modalPianificaBackdrop");
+  if (!modal.classList.contains("open")) return;
+  if (!forza) {
+    const nota = (document.getElementById("pianificaInputNota").value || "").trim();
+    if (nota) {
+      if (!confirm("Hai inserito una nota per il ricontatto non salvata. Vuoi chiudere comunque?")) return;
+    }
+  }
+  modal.classList.remove("open");
 }
 
 async function salvaFormPianifica(e) {
   e.preventDefault();
+  const submitBtn = document.getElementById("btnSalvaPianifica");
+  if (submitBtn && submitBtn.disabled) return;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.dataset.originalText = submitBtn.textContent;
+    submitBtn.textContent = "Salvataggio...";
+  }
+  const resetBtn = () => {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtn.dataset.originalText || "Conferma e Salva";
+    }
+  };
+
   const idContatto = parseInt(document.getElementById("pianificaIdContatto").value, 10);
   const dataVal = document.getElementById("pianificaInputData").value.trim();
   const oraVal = document.getElementById("pianificaInputOra").value.trim() || "10:00";
@@ -1693,19 +1741,24 @@ async function salvaFormPianifica(e) {
 
   if (!dataVal) {
     showToast("Seleziona una data valida per il ricontatto", "error");
+    resetBtn();
     return;
   }
 
   const dataRicontattoCompleta = `${dataVal} ${oraVal}`;
-  await inviaPianificazioneBackend(idContatto, dataRicontattoCompleta, motivo, priorita, notaExtra);
-  chiudiModalPianifica();
+  try {
+    await inviaPianificazioneBackend(idContatto, dataRicontattoCompleta, motivo, priorita, notaExtra);
+    chiudiModalPianifica(true);
+  } finally {
+    resetBtn();
+  }
 }
 
 async function rimuoviRicontattoDaModalePianifica() {
   const idContatto = parseInt(document.getElementById("pianificaIdContatto").value, 10);
   if (!idContatto) return;
   await inviaPianificazioneBackend(idContatto, "", "", null, "Ricontatto rimosso manualmente");
-  chiudiModalPianifica();
+  chiudiModalPianifica(true);
 }
 
 async function spostaRicontattoPiuUnGiorno(idContatto) {
@@ -1790,6 +1843,56 @@ async function inviaPianificazioneBackend(idContatto, dataRicontatto, motivoRico
   }
 }
 
+// --- GESTIONE BOZZE PERSISTENTI (ANTI-DATA LOSS) ---
+function salvaBozzaNuovoContatto() {
+  const editId = (document.getElementById("contattoEditId")?.value || "").trim();
+  if (editId) return;
+  try {
+    const data = {
+      azienda: document.getElementById("inputAzienda").value,
+      referente: document.getElementById("inputReferente").value,
+      telefono: document.getElementById("inputTelefono").value,
+      priorita: document.getElementById("inputPriorita").value,
+      citta: document.getElementById("inputCitta").value,
+      regione: document.getElementById("inputRegione").value,
+      note: document.getElementById("inputNote").value,
+      totale_ordini: document.getElementById("inputOrdineIniziale").value,
+    };
+    sessionStorage.setItem("noga_draft_nuovo_contatto", JSON.stringify(data));
+  } catch (e) {}
+}
+
+function cancellaBozzaNuovoContatto() {
+  try {
+    sessionStorage.removeItem("noga_draft_nuovo_contatto");
+  } catch (e) {}
+}
+
+function salvaBozzaEsito() {
+  const idContatto = (document.getElementById("esitoIdContatto")?.value || "").trim();
+  if (!idContatto) return;
+  try {
+    const data = {
+      chiamato: document.getElementById("selectChiamato").value,
+      esito: document.getElementById("selectEsito").value,
+      referente: document.getElementById("esitoInputReferente").value,
+      priorita: document.getElementById("esitoSelectPriorita").value,
+      importo: document.getElementById("inputImportoOrdineChiamata").value,
+      dataRicontatto: document.getElementById("esitoInputDataRicontatto").value,
+      oraRicontatto: document.getElementById("esitoInputOraRicontatto").value,
+      motivoRicontatto: document.getElementById("esitoSelectMotivoRicontatto").value,
+      note: document.getElementById("textareaNuoveNote").value,
+    };
+    sessionStorage.setItem("noga_draft_esito_" + idContatto, JSON.stringify(data));
+  } catch (e) {}
+}
+
+function cancellaBozzaEsito(idContatto) {
+  try {
+    sessionStorage.removeItem("noga_draft_esito_" + idContatto);
+  } catch (e) {}
+}
+
 // --- MODALE NUOVO / MODIFICA CONTATTO ---
 function apriModalNuovo() {
   document.getElementById("formNuovoContatto").reset();
@@ -1798,6 +1901,25 @@ function apriModalNuovo() {
   document.getElementById("modalContattoTitle").textContent = "Nuovo Cliente all'Ingrosso";
   document.getElementById("groupOrdineIniziale").classList.remove("hidden");
   state.isFormDirty = false;
+
+  try {
+    const bozzaStr = sessionStorage.getItem("noga_draft_nuovo_contatto");
+    if (bozzaStr) {
+      const b = JSON.parse(bozzaStr);
+      if (b && (b.azienda || b.telefono || b.referente || b.note)) {
+        if (b.azienda) document.getElementById("inputAzienda").value = b.azienda;
+        if (b.referente) document.getElementById("inputReferente").value = b.referente;
+        if (b.telefono) document.getElementById("inputTelefono").value = b.telefono;
+        if (b.priorita) document.getElementById("inputPriorita").value = b.priorita;
+        if (b.citta) document.getElementById("inputCitta").value = b.citta;
+        if (b.regione) document.getElementById("inputRegione").value = b.regione;
+        if (b.note) document.getElementById("inputNote").value = b.note;
+        if (b.totale_ordini) document.getElementById("inputOrdineIniziale").value = b.totale_ordini;
+        state.isFormDirty = true;
+      }
+    }
+  } catch (err) {}
+
   document.getElementById("modalNuovoBackdrop").classList.add("open");
   setTimeout(() => document.getElementById("inputAzienda").focus(), 40);
 }
@@ -1835,6 +1957,20 @@ function chiudiModalNuovo(forza = false) {
 
 async function salvaFormContatto(e) {
   e.preventDefault();
+  const submitBtn = document.getElementById("btnSalvaNuovo");
+  if (submitBtn && submitBtn.disabled) return;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.dataset.originalText = submitBtn.textContent;
+    submitBtn.textContent = "Salvataggio...";
+  }
+  const resetBtn = () => {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtn.dataset.originalText || "Salva Scheda Cliente";
+    }
+  };
+
   const editId = document.getElementById("contattoEditId").value.trim();
   const azienda = document.getElementById("inputAzienda").value.trim();
   const referente = document.getElementById("inputReferente").value.trim();
@@ -1846,6 +1982,7 @@ async function salvaFormContatto(e) {
   const totaleOrdiniInit = parseFloat(document.getElementById("inputOrdineIniziale").value) || 0.0;
 
   if (!azienda || !telefono) {
+    resetBtn();
     showToast("Azienda e Telefono sono obbligatori", "error");
     return;
   }
@@ -1860,11 +1997,14 @@ async function salvaFormContatto(e) {
         });
         const json = await res.json();
         if (json.ok) {
+          resetBtn();
+          cancellaBozzaNuovoContatto();
           showToast("Scheda cliente aggiornata con successo", "success");
           chiudiModalNuovo(true);
           await loadData({ postMutazioneServer: true });
           return;
         }
+        resetBtn();
         showToast(json.errore || "Errore durante l'aggiornamento", "error");
         return;
       } else {
@@ -1884,11 +2024,14 @@ async function salvaFormContatto(e) {
         });
         const json = await res.json();
         if (json.ok) {
+          resetBtn();
+          cancellaBozzaNuovoContatto();
           showToast("Nuovo cliente registrato con successo", "success");
           chiudiModalNuovo(true);
           await loadData({ postMutazioneServer: true });
           return;
         }
+        resetBtn();
         showToast(json.errore || "Errore durante il salvataggio", "error");
         return;
       }
@@ -1912,6 +2055,8 @@ async function salvaFormContatto(e) {
       c.note = note;
       c.data_aggiornamento = adesso;
       ricalcolaTuttoInLocale();
+      resetBtn();
+      cancellaBozzaNuovoContatto();
       chiudiModalNuovo(true);
       renderAll();
       showToast("Scheda cliente aggiornata con successo", "success");
@@ -1920,6 +2065,7 @@ async function salvaFormContatto(e) {
     const telNorm = normalizzaTelefonoClient(telefono);
     const duplicato = state.contatti.some(x => normalizzaTelefonoClient(x.telefono) === telNorm);
     if (duplicato) {
+      resetBtn();
       showToast(`Il numero '${telefono}' è già presente a sistema`, "error");
       return;
     }
@@ -1950,6 +2096,8 @@ async function salvaFormContatto(e) {
     });
     state.contatti.push(nuovoContatto);
     ricalcolaTuttoInLocale();
+    resetBtn();
+    cancellaBozzaNuovoContatto();
     chiudiModalNuovo(true);
     renderAll();
     showToast("Nuovo cliente registrato con successo", "success");
@@ -1983,6 +2131,23 @@ function apriModalEsito(idContatto) {
   document.getElementById("esitoSelectMotivoRicontatto").value = "";
   document.getElementById("boxCalendarizzaEsito").classList.remove("highlight-schedule");
 
+  // Ripristina eventuale bozza non salvata
+  try {
+    const bozzaStr = sessionStorage.getItem("noga_draft_esito_" + c.id);
+    if (bozzaStr) {
+      const b = JSON.parse(bozzaStr);
+      if (b) {
+        if (b.note) document.getElementById("textareaNuoveNote").value = b.note;
+        if (b.importo) document.getElementById("inputImportoOrdineChiamata").value = b.importo;
+        if (b.esito) document.getElementById("selectEsito").value = b.esito;
+        if (b.chiamato) document.getElementById("selectChiamato").value = b.chiamato;
+        if (b.dataRicontatto) document.getElementById("esitoInputDataRicontatto").value = b.dataRicontatto;
+        if (b.oraRicontatto) document.getElementById("esitoInputOraRicontatto").value = b.oraRicontatto;
+        if (b.motivoRicontatto) document.getElementById("esitoSelectMotivoRicontatto").value = b.motivoRicontatto;
+      }
+    }
+  } catch (err) {}
+
   aggiornaVisibilitaBoxOrdineEsito();
   document.getElementById("modalEsitoBackdrop").classList.add("open");
 }
@@ -2013,12 +2178,36 @@ function aggiornaVisibilitaBoxOrdineEsito() {
   }
 }
 
-function chiudiModalEsito() {
-  document.getElementById("modalEsitoBackdrop").classList.remove("open");
+function chiudiModalEsito(forza = false) {
+  const modal = document.getElementById("modalEsitoBackdrop");
+  if (!modal.classList.contains("open")) return;
+  if (!forza) {
+    const note = (document.getElementById("textareaNuoveNote").value || "").trim();
+    const importo = (document.getElementById("inputImportoOrdineChiamata").value || "").trim();
+    const dataRic = (document.getElementById("esitoInputDataRicontatto").value || "").trim();
+    if (note || (importo && importo !== "0") || dataRic) {
+      if (!confirm("Ci sono dati non salvati per questa chiamata. Vuoi chiudere comunque?")) return;
+    }
+  }
+  modal.classList.remove("open");
 }
 
 async function salvaEsitoChiamata(e) {
   e.preventDefault();
+  const submitBtn = document.getElementById("btnSalvaEsito");
+  if (submitBtn && submitBtn.disabled) return;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.dataset.originalText = submitBtn.textContent;
+    submitBtn.textContent = "Salvataggio...";
+  }
+  const resetBtn = () => {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtn.dataset.originalText || "Salva Esito Telefonata";
+    }
+  };
+
   const idContatto = parseInt(document.getElementById("esitoIdContatto").value, 10);
   const chiamato = document.getElementById("selectChiamato").value;
   const esito = document.getElementById("selectEsito").value;
@@ -2050,13 +2239,15 @@ async function salvaEsitoChiamata(e) {
       });
       const json = await res.json();
       if (json.ok) {
+        resetBtn();
+        cancellaBozzaEsito(idContatto);
         showToast(
           dataRicontattoCompleta
             ? `Esito salvato e ricontatto fissato per ${dataRicontattoCompleta}`
             : "Esito telefonata salvato con successo",
           "success"
         );
-        chiudiModalEsito();
+        chiudiModalEsito(true);
         await loadData({ postMutazioneServer: true });
         return;
       }
@@ -2111,7 +2302,9 @@ async function salvaEsitoChiamata(e) {
     }
 
     ricalcolaTuttoInLocale();
-    chiudiModalEsito();
+    resetBtn();
+    cancellaBozzaEsito(idContatto);
+    chiudiModalEsito(true);
     renderAll();
     showToast(
       dataRicontattoCompleta
@@ -2119,6 +2312,8 @@ async function salvaEsitoChiamata(e) {
         : "Esito telefonata salvato con successo",
       "success"
     );
+  } else {
+    resetBtn();
   }
 }
 
@@ -2138,64 +2333,98 @@ function apriModalNuovoOrdine(idContatto) {
   setTimeout(() => document.getElementById("inputNuovoOrdineImporto").focus(), 40);
 }
 
-function chiudiModalNuovoOrdine() {
-  document.getElementById("modalNuovoOrdineBackdrop").classList.remove("open");
+function chiudiModalNuovoOrdine(forza = false) {
+  const modal = document.getElementById("modalNuovoOrdineBackdrop");
+  if (!modal.classList.contains("open")) return;
+  if (!forza) {
+    const importo = (document.getElementById("inputNuovoOrdineImporto").value || "").trim();
+    const note = (document.getElementById("inputNuovoOrdineNote").value || "").trim();
+    if ((importo && importo !== "0") || note) {
+      if (!confirm("Hai un nuovo ordine non ancora confermato. Vuoi chiudere comunque?")) return;
+    }
+  }
+  modal.classList.remove("open");
 }
 
 async function salvaNuovoOrdine(e) {
   e.preventDefault();
+  const submitBtn = document.getElementById("btnSalvaNuovoOrdine");
+  if (submitBtn && submitBtn.disabled) return;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.dataset.originalText = submitBtn.textContent;
+    submitBtn.textContent = "Salvataggio...";
+  }
+  const resetBtn = () => {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtn.dataset.originalText || "Conferma e Salva Ordine";
+    }
+  };
+
   const idContatto = parseInt(document.getElementById("ordineIdContatto").value, 10);
   const importo = parseFloat(document.getElementById("inputNuovoOrdineImporto").value);
   const noteOrdine = document.getElementById("inputNuovoOrdineNote").value.trim();
 
   if (!importo || importo <= 0) {
     showToast("Inserisci un importo ordine in Euro maggiore di 0", "error");
+    resetBtn();
     return;
   }
 
-  if (state.isApiAvailable) {
-    try {
-      const res = await fetchConTimeout(`${API_BASE}/api/contatti/${idContatto}/ordini`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ importo, note_ordine: noteOrdine })
-      });
-      const json = await res.json();
-      if (json.ok) {
-        showToast(`Ordine di ${formatEuro(importo)} registrato con successo`, "success");
-        chiudiModalNuovoOrdine();
-        await loadData({ postMutazioneServer: true });
-        return;
+  try {
+    if (state.isApiAvailable) {
+      try {
+        const res = await fetchConTimeout(`${API_BASE}/api/contatti/${idContatto}/ordini`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ importo, note_ordine: noteOrdine })
+        });
+        const json = await res.json();
+        if (json.ok) {
+          showToast(`Ordine di ${formatEuro(importo)} registrato con successo`, "success");
+          chiudiModalNuovoOrdine(true);
+          await loadData({ postMutazioneServer: true });
+          if (state.selectedContact && state.selectedContact.id === idContatto) {
+            await apriDrawer(idContatto);
+          }
+          return;
+        }
+      } catch (err) {
+        // Fallback autonomo locale
       }
-    } catch (err) {
-      // Fallback autonomo locale
     }
-  }
 
-  const c = state.contatti.find(x => x.id === idContatto);
-  if (c) {
-    const adesso = getNowTimestampStr();
-    if (!Array.isArray(c.ordini_storico)) c.ordini_storico = [];
-    c.ordini_storico.unshift({
-      id: Date.now(),
-      contatto_id: c.id,
-      importo: Number(importo.toFixed(2)),
-      note_ordine: noteOrdine || "Riassortimento B2B",
-      data_ordine: adesso
-    });
-    c.chiamato = "Sì";
-    c.esito = "Interessato (Ordine preso)";
-    c.totale_ordini = Number((Number(c.totale_ordini || 0) + importo).toFixed(2));
-    c.numero_ordini = (Number(c.numero_ordini) || 0) + 1;
-    c.ultimo_ordine = adesso;
-    c.data_aggiornamento = adesso;
-    const suff = noteOrdine ? ` - ${noteOrdine}` : "";
-    c.note = accodaNotaClient(c.note, `[${adesso}] ORDINE CONFERMATO: € ${importo.toFixed(2)}${suff}`);
+    const c = state.contatti.find(x => x.id === idContatto);
+    if (c) {
+      const adesso = getNowTimestampStr();
+      if (!Array.isArray(c.ordini_storico)) c.ordini_storico = [];
+      c.ordini_storico.unshift({
+        id: Date.now(),
+        contatto_id: c.id,
+        importo: Number(importo.toFixed(2)),
+        note_ordine: noteOrdine || "Riassortimento B2B",
+        data_ordine: adesso
+      });
+      c.chiamato = "Sì";
+      c.esito = "Interessato (Ordine preso)";
+      c.totale_ordini = Number((Number(c.totale_ordini || 0) + importo).toFixed(2));
+      c.numero_ordini = (Number(c.numero_ordini) || 0) + 1;
+      c.ultimo_ordine = adesso;
+      c.data_aggiornamento = adesso;
+      const suff = noteOrdine ? ` - ${noteOrdine}` : "";
+      c.note = accodaNotaClient(c.note, `[${adesso}] ORDINE CONFERMATO: € ${importo.toFixed(2)}${suff}`);
 
-    ricalcolaTuttoInLocale();
-    chiudiModalNuovoOrdine();
-    renderAll();
-    showToast(`Ordine di ${formatEuro(importo)} registrato con successo`, "success");
+      ricalcolaTuttoInLocale();
+      chiudiModalNuovoOrdine(true);
+      renderAll();
+      if (state.selectedContact && state.selectedContact.id === idContatto) {
+        await apriDrawer(idContatto);
+      }
+      showToast(`Ordine di ${formatEuro(importo)} registrato con successo`, "success");
+    }
+  } finally {
+    resetBtn();
   }
 }
 
@@ -2218,6 +2447,11 @@ function chiudiModalElimina() {
 async function confermaEliminazioneCliente() {
   const idContatto = state.pendingDeleteId;
   if (!idContatto) return;
+
+  const daEliminare = state.contatti.find(c => c.id === idContatto);
+  if (daEliminare) {
+    tracciaTelefonoEliminato(daEliminare.telefono);
+  }
 
   // Rimuovi subito anche dallo storage locale su disco per evitare qualsiasi risincronizzazione
   state.contatti = state.contatti.filter(c => c.id !== idContatto);
@@ -2248,6 +2482,12 @@ async function confermaEliminazioneCliente() {
 
 // --- MERGE DUPLICATI ---
 async function eseguiMergeContatti(idPrincipale, idSecondario) {
+  const p = state.contatti.find(x => x.id === idPrincipale);
+  const sec = state.contatti.find(x => x.id === idSecondario);
+  if (sec && p && normalizzaTelefonoClient(sec.telefono) !== normalizzaTelefonoClient(p.telefono)) {
+    tracciaTelefonoEliminato(sec.telefono);
+  }
+
   if (state.isApiAvailable) {
     try {
       const res = await fetchConTimeout(`${API_BASE}/api/duplicati/unisci`, {
@@ -2268,9 +2508,8 @@ async function eseguiMergeContatti(idPrincipale, idSecondario) {
     }
   }
 
-  const p = state.contatti.find(x => x.id === idPrincipale);
-  const s = state.contatti.find(x => x.id === idSecondario);
-  if (!p || !s) return;
+  if (!p || !sec) return;
+  const s = sec;
 
   if (!p.referente && s.referente) p.referente = s.referente;
   if (!p.citta && s.citta) p.citta = s.citta;
@@ -2392,6 +2631,7 @@ async function apriDrawer(idContatto) {
 }
 
 function chiudiDrawer() {
+  state.selectedContact = null;
   document.getElementById("drawerBackdrop").classList.remove("open");
   document.getElementById("detailDrawer").classList.remove("open");
 }
@@ -2407,8 +2647,23 @@ function apriModalImport() {
   document.getElementById("modalImportBackdrop").classList.add("open");
 }
 
-function chiudiModalImport() {
-  document.getElementById("modalImportBackdrop").classList.remove("open");
+function chiudiModalImport(forza = false) {
+  const modal = document.getElementById("modalImportBackdrop");
+  if (!modal || !modal.classList.contains("open")) return;
+  const feedbackBox = document.getElementById("importFeedbackBox");
+  const feedbackVisibile = feedbackBox && !feedbackBox.classList.contains("hidden");
+  if (!forza && !feedbackVisibile) {
+    const raw = (document.getElementById("textareaJsonRaw").value || "").trim();
+    if (raw) {
+      if (!confirm("Hai incollato o caricato dei dati non ancora importati. Vuoi chiudere comunque?")) return;
+    }
+  }
+  document.getElementById("textareaJsonRaw").value = "";
+  if (feedbackBox) {
+    feedbackBox.classList.add("hidden");
+    feedbackBox.innerHTML = "";
+  }
+  modal.classList.remove("open");
 }
 
 function leggiFileImportato(file) {
@@ -2608,6 +2863,7 @@ async function eseguiImportUniversale() {
       const json = await res.json();
       if (json.ok) {
         mostraFeedbackImport(json);
+        document.getElementById("textareaJsonRaw").value = "";
         await loadData({ postMutazioneServer: true });
         return;
       }
@@ -2624,6 +2880,7 @@ async function eseguiImportUniversale() {
     }
     const report = importaListaRecordsLocale(records, formato);
     mostraFeedbackImport(report);
+    document.getElementById("textareaJsonRaw").value = "";
   } catch (err) {
     showToast("Formato dati non valido: verifica il testo incollato", "error");
   }
@@ -2684,6 +2941,7 @@ function esportaFileCsv() {
 // ==============================================================================
 
 function attivaTab(targetId) {
+  chiudiDrawer();
   state.activeTab = targetId;
   document.querySelectorAll(".tab-btn").forEach(b => {
     b.classList.toggle("active", b.dataset.tab === targetId);
@@ -2812,6 +3070,7 @@ function setupEventListeners() {
   document.getElementById("formNuovoContatto").addEventListener("submit", salvaFormContatto);
   document.getElementById("formNuovoContatto").addEventListener("input", () => {
     state.isFormDirty = true;
+    salvaBozzaNuovoContatto();
   });
 
   document.getElementById("inputCitta").addEventListener("input", (e) => {
@@ -2821,19 +3080,21 @@ function setupEventListeners() {
     }
   });
 
-  document.getElementById("modalEsitoCloseBtn").addEventListener("click", chiudiModalEsito);
-  document.getElementById("btnAnnullaEsito").addEventListener("click", chiudiModalEsito);
+  document.getElementById("modalEsitoCloseBtn").addEventListener("click", () => chiudiModalEsito(false));
+  document.getElementById("btnAnnullaEsito").addEventListener("click", () => chiudiModalEsito(false));
   document.getElementById("selectEsito").addEventListener("change", aggiornaVisibilitaBoxOrdineEsito);
   document.getElementById("btnQuickNonRisponde").addEventListener("click", impostaEsitoRapidoNonRisponde);
   document.getElementById("btnEsitoRimuoviRicontatto").addEventListener("click", () => {
     document.getElementById("esitoInputDataRicontatto").value = "";
     document.getElementById("esitoInputOraRicontatto").value = "";
     document.getElementById("esitoSelectMotivoRicontatto").value = "";
+    salvaBozzaEsito();
   });
   document.getElementById("formRegistraEsito").addEventListener("submit", salvaEsitoChiamata);
+  document.getElementById("formRegistraEsito").addEventListener("input", salvaBozzaEsito);
 
-  document.getElementById("modalPianificaCloseBtn").addEventListener("click", chiudiModalPianifica);
-  document.getElementById("btnAnnullaPianifica").addEventListener("click", chiudiModalPianifica);
+  document.getElementById("modalPianificaCloseBtn").addEventListener("click", () => chiudiModalPianifica(false));
+  document.getElementById("btnAnnullaPianifica").addEventListener("click", () => chiudiModalPianifica(false));
   document.getElementById("btnPianificaRimuovi").addEventListener("click", rimuoviRicontattoDaModalePianifica);
   document.getElementById("formPianificaRicontatto").addEventListener("submit", salvaFormPianifica);
 
@@ -2872,12 +3133,12 @@ function setupEventListeners() {
     });
   });
 
-  document.getElementById("modalNuovoOrdineCloseBtn").addEventListener("click", chiudiModalNuovoOrdine);
-  document.getElementById("btnAnnullaNuovoOrdine").addEventListener("click", chiudiModalNuovoOrdine);
+  document.getElementById("modalNuovoOrdineCloseBtn").addEventListener("click", () => chiudiModalNuovoOrdine(false));
+  document.getElementById("btnAnnullaNuovoOrdine").addEventListener("click", () => chiudiModalNuovoOrdine(false));
   document.getElementById("formNuovoOrdine").addEventListener("submit", salvaNuovoOrdine);
 
-  document.getElementById("modalImportCloseBtn").addEventListener("click", chiudiModalImport);
-  document.getElementById("btnAnnullaImport").addEventListener("click", chiudiModalImport);
+  document.getElementById("modalImportCloseBtn").addEventListener("click", () => chiudiModalImport(false));
+  document.getElementById("btnAnnullaImport").addEventListener("click", () => chiudiModalImport(false));
   document.getElementById("btnCaricaFileJson").addEventListener("click", () => {
     document.getElementById("fileInputJson").click();
   });
@@ -2912,28 +3173,24 @@ function setupEventListeners() {
   document.getElementById("drawerBtnRegistraChiamata").addEventListener("click", () => {
     if (!state.selectedContact) return;
     const id = state.selectedContact.id;
-    chiudiDrawer();
     apriModalEsito(id);
   });
 
   document.getElementById("drawerBtnPianifica").addEventListener("click", () => {
     if (!state.selectedContact) return;
     const id = state.selectedContact.id;
-    chiudiDrawer();
     apriModalPianifica(id);
   });
 
   document.getElementById("drawerBtnModificaContatto").addEventListener("click", () => {
     if (!state.selectedContact) return;
     const id = state.selectedContact.id;
-    chiudiDrawer();
     apriModalModifica(id);
   });
 
   document.getElementById("drawerBtnNuovoOrdine").addEventListener("click", () => {
     if (!state.selectedContact) return;
     const id = state.selectedContact.id;
-    chiudiDrawer();
     apriModalNuovoOrdine(id);
   });
 
@@ -2942,6 +3199,24 @@ function setupEventListeners() {
     const id = state.selectedContact.id;
     richiediEliminazione(id);
   });
+
+  // Guardie sui Backdrop modali: se clicchi all'esterno con modifiche non salvate, scatta la conferma anti-data-loss
+  function attachBackdropGuard(backdropId, closeFn) {
+    const el = document.getElementById(backdropId);
+    if (!el) return;
+    el.addEventListener("click", (e) => {
+      if (e.target === el) {
+        closeFn(false);
+      }
+    });
+  }
+
+  attachBackdropGuard("modalNuovoBackdrop", chiudiModalNuovo);
+  attachBackdropGuard("modalEsitoBackdrop", chiudiModalEsito);
+  attachBackdropGuard("modalPianificaBackdrop", chiudiModalPianifica);
+  attachBackdropGuard("modalNuovoOrdineBackdrop", chiudiModalNuovoOrdine);
+  attachBackdropGuard("modalImportBackdrop", chiudiModalImport);
+  attachBackdropGuard("modalEliminaBackdrop", chiudiModalElimina);
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {

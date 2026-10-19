@@ -1280,16 +1280,23 @@ body {
 /* ==========================================================================
    9. MODALS, CHIP NOTE RAPIDE, DROPZONE & DRAWER LATERALE
    ========================================================================== */
-.modal-backdrop,
-.drawer-backdrop {
+.modal-backdrop {
   position: fixed;
   inset: 0;
   background-color: var(--backdrop-overlay);
-  z-index: 100;
+  z-index: 1200;
   display: none;
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: var(--backdrop-overlay);
+  z-index: 500;
+  display: none;
 }
 
 .modal-backdrop.open {
@@ -1579,7 +1586,7 @@ textarea.form-control {
   background-color: var(--bg-white);
   border-left: 1px solid var(--border-light);
   box-shadow: var(--shadow-drawer);
-  z-index: 110;
+  z-index: 510;
   display: flex;
   flex-direction: column;
   transition: right 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1767,7 +1774,7 @@ textarea.form-control {
   position: fixed;
   bottom: 1.75rem;
   right: 1.75rem;
-  z-index: 999;
+  z-index: 2000;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;

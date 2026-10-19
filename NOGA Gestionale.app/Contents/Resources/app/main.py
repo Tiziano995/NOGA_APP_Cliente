@@ -2002,7 +2002,7 @@ def unisci_contatti(id_principale, id_secondario):
         return False
 
 
-def sincronizza_snapshot_client(lista_contatti):
+def sincronizza_snapshot_client(lista_contatti, telefoni_eliminati=None):
     """
     Sincronizza lo stato dei contatti salvati dal client nel database SQLite,
     includendo storico ordini, note e appuntamenti a calendario, senza mai perdere dati.
@@ -2013,6 +2013,19 @@ def sincronizza_snapshot_client(lista_contatti):
         crea_tabella()
         conn = connetti()
         cur = conn.cursor()
+
+        # Purga contatti eliminati dal client per garantire sincronizzazione bidirezionale
+        if telefoni_eliminati and isinstance(telefoni_eliminati, (list, set)):
+            cur.execute("SELECT id, telefono FROM contatti_ingrosso")
+            tutti_attuali = cur.fetchall()
+            for r in tutti_attuali:
+                r_tel_norm = normalizza_telefono(r["telefono"])
+                for tel_el in telefoni_eliminati:
+                    if r_tel_norm and r_tel_norm == normalizza_telefono(str(tel_el)):
+                        cid = r["id"]
+                        cur.execute("DELETE FROM storico_ordini WHERE contatto_id = ?", (cid,))
+                        cur.execute("DELETE FROM contatti_ingrosso WHERE id = ?", (cid,))
+                        break
 
         cur.execute("SELECT id, telefono FROM contatti_ingrosso")
         esistenti_per_tel = {

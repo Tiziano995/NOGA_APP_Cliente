@@ -12,33 +12,50 @@ from datetime import datetime, timedelta
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+AZIENDE_DEMO_OBSOLETE = {
+    "calzature brera luxury s.r.l.",
+    "atelier del passo condotti",
+    "toscana shoes & leather s.n.c.",
+    "partenope moda calzature s.r.l.",
+    "galleria sabauda footwear",
+    "emilia boutique calzature s.a.s.",
+    "san marco luxury shoes",
+    "laguna glamour shoes",
+    "bari moda & pelle s.r.l.",
+    "adriatica showroom s.r.l.",
+    "via libertà concept store",
+    "trinacria luxury concept",
+    "lanterna calzature s.n.c.",
+    "distretto marche concept store",
+    "brera luxury milano (showroom)",
+    "atelier del passo condotti srl",
+    "atelier del passo condotti s.r.l.",
+    "calzature rossi s.r.l.",
+    "boutique della scarpa",
+    "moda & stile s.n.c.",
+    "grandi magazzini sud",
+    "step बाय step torino",
+    "calzature montenapoleone srl",
+    "boutique piazza navona",
+    "pelletteria & scarpe ponte vecchio",
+}
+
+
 def _risolvi_percorso_db():
-    """Ritorna un percorso SQLite scrivibile, supportando l'installazione macOS in /Applications."""
+    """Ritorna sempre il percorso SQLite persistente in ~/Library/Application Support/NOGA_Gestionale su macOS."""
     env_db = os.environ.get("NOGA_DB_PATH", "").strip()
     if env_db:
         cartella_env = os.path.dirname(env_db)
         if cartella_env:
             os.makedirs(cartella_env, exist_ok=True)
-        db_bundle = os.path.join(BASE_DIR, "crm_ingrosso.db")
-        if not os.path.exists(env_db) and os.path.exists(db_bundle):
-            try:
-                shutil.copy2(db_bundle, env_db)
-            except OSError:
-                pass
         return env_db
 
-    db_locale = os.path.join(BASE_DIR, "crm_ingrosso.db")
-    if sys.platform == "darwin" and not os.access(BASE_DIR, os.W_OK):
+    if sys.platform == "darwin":
         support_dir = os.path.expanduser("~/Library/Application Support/NOGA_Gestionale")
         os.makedirs(support_dir, exist_ok=True)
-        db_utente = os.path.join(support_dir, "crm_ingrosso.db")
-        if not os.path.exists(db_utente) and os.path.exists(db_locale):
-            try:
-                shutil.copy2(db_locale, db_utente)
-            except OSError:
-                pass
-        return db_utente
-    return db_locale
+        return os.path.join(support_dir, "crm_ingrosso.db")
+
+    return os.path.join(BASE_DIR, "crm_ingrosso.db")
 
 
 NOME_DB = _risolvi_percorso_db()
@@ -374,15 +391,43 @@ def crea_tabella():
                 motivo_ricontatto = COALESCE(motivo_ricontatto, '')
         """)
 
-        cur.execute("SELECT id, citta, regione FROM contatti_ingrosso WHERE (regione IS NULL OR regione = '') AND citta != ''")
-        da_aggiornare = cur.fetchall()
-        for r in da_aggiornare:
-            reg = deduci_regione(r["citta"])
-            if reg:
-                cur.execute("UPDATE contatti_ingrosso SET regione = ? WHERE id = ?", (reg, r["id"]))
+        cur.execute("SELECT id, azienda, citta, regione FROM contatti_ingrosso")
+        tutte_righe = cur.fetchall()
+        for r in tutte_righe:
+            nome_az = (r["azienda"] or "").strip().lower()
+            if nome_az in AZIENDE_DEMO_OBSOLETE:
+                cur.execute("DELETE FROM storico_ordini WHERE contatto_id = ?", (r["id"],))
+                cur.execute("DELETE FROM contatti_ingrosso WHERE id = ?", (r["id"],))
+            elif (not r["regione"]) and r["citta"]:
+                reg = deduci_regione(r["citta"])
+                if reg:
+                    cur.execute("UPDATE contatti_ingrosso SET regione = ? WHERE id = ?", (reg, r["id"]))
 
         conn.commit()
         conn.close()
+
+        # Se presente il file di persistenza WebKit su disco (macOS), rimuove eventuali demo obsolete
+        # e sincronizza i contatti reali dell'utente nel database SQLite
+        percorso_json_disco = os.path.join(os.path.dirname(os.path.abspath(NOME_DB)), "noga_dati_persistenti.json")
+        if os.path.exists(percorso_json_disco):
+            try:
+                with open(percorso_json_disco, "r", encoding="utf-8") as fj:
+                    dati_disco = json.load(fj)
+                if isinstance(dati_disco, list):
+                    puliti = [
+                        c for c in dati_disco
+                        if isinstance(c, dict)
+                        and str(c.get("azienda", "")).strip()
+                        and str(c.get("azienda", "")).strip().lower() not in AZIENDE_DEMO_OBSOLETE
+                    ]
+                    if len(puliti) != len(dati_disco):
+                        with open(percorso_json_disco, "w", encoding="utf-8") as fw:
+                            json.dump(puliti, fw, ensure_ascii=False)
+                    if puliti:
+                        sincronizza_snapshot_client(puliti)
+            except Exception:
+                pass
+
         return True
     except sqlite3.Error as e:
         print(f"Errore database in crea_tabella: {e}")
@@ -1957,282 +2002,128 @@ def unisci_contatti(id_principale, id_secondario):
         return False
 
 
-def ripristina_dati_demo():
+def sincronizza_snapshot_client(lista_contatti):
     """
-    Popola il database con un dataset dimostrativo ricco:
-    - 12 contatti distribuiti in più città e regioni italiane
-    - Referenti, priorità miste (1=Alta, 2=Normale, 3=Bassa)
-    - Ordini multipli già confermati in €
-    - 5 appuntamenti di ricontatto realistici (1 scaduto, 2 fissati per OGGI, 2 nei prossimi giorni)
-    - 2 coppie di contatti duplicati per testare subito la Tab Duplicati & Ridondanze
+    Sincronizza lo stato dei contatti salvati dal client nel database SQLite,
+    includendo storico ordini, note e appuntamenti a calendario, senza mai perdere dati.
     """
+    if not isinstance(lista_contatti, list):
+        return {"ok": False, "errore": "Lista contatti non valida"}
     try:
         crea_tabella()
         conn = connetti()
         cur = conn.cursor()
-        cur.execute("DELETE FROM storico_ordini")
-        cur.execute("DELETE FROM contatti_ingrosso")
-        cur.execute("DELETE FROM sqlite_sequence WHERE name IN ('contatti_ingrosso', 'storico_ordini')")
 
-        adesso = datetime.now()
-        ieri_str = (adesso - timedelta(days=1)).strftime("%Y-%m-%d")
-        oggi_str = adesso.strftime("%Y-%m-%d")
-        domani_str = (adesso + timedelta(days=1)).strftime("%Y-%m-%d")
-        tra_3gg_str = (adesso + timedelta(days=3)).strftime("%Y-%m-%d")
+        cur.execute("SELECT id, telefono FROM contatti_ingrosso")
+        esistenti_per_tel = {
+            normalizza_telefono(r["telefono"]): r["id"]
+            for r in cur.fetchall()
+            if normalizza_telefono(r["telefono"])
+        }
 
-        # Orari dinamici di oggi: uno futuro nella giornata odierna (es. 18:30 o +1h) e uno a metà pomeriggio
-        ora_oggi_1 = (adesso + timedelta(hours=1)).strftime("%H:%M") if adesso.hour < 22 else "23:30"
-        ora_oggi_2 = "23:45" if adesso.hour >= 17 else "17:30"
+        sincronizzati = 0
+        adesso_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        demo_leads = [
-            {
-                "azienda": "Calzature Brera Luxury S.r.l.",
-                "referente": "Dott.ssa Giulia Visconti",
-                "telefono": "+39 02 98765431",
-                "citta": "Milano",
-                "regione": "Lombardia",
-                "priorita": 1,
-                "chiamato": "Sì",
-                "esito": "Interessato (Ordine preso)",
-                "data_ricontatto": f"{tra_3gg_str} 11:00",
-                "motivo_ricontatto": "Follow-up nuovo ordine",
-                "note": "Catena con 3 boutique in centro a Milano | [2026-10-10 10:30] ORDINE CONFERMATO: € 4850.00 - Collezione Autunno/Inverno Donna | [2026-10-16 15:15] ORDINE CONFERMATO: € 3200.00 - Riassortimento stivaletti pelle",
-                "data_aggiornamento": "2026-10-16 15:15",
-                "ordini": [
-                    (4850.00, "Collezione Autunno/Inverno Donna - 45 paia", "2026-10-10 10:30"),
-                    (3200.00, "Riassortimento stivaletti pelle NOGA ROMA", "2026-10-16 15:15"),
-                ],
-            },
-            {
-                "azienda": "Atelier del Passo Condotti",
-                "referente": "Marco Valeri",
-                "telefono": "06 55443322",
-                "citta": "Roma",
-                "regione": "Lazio",
-                "priorita": 1,
-                "chiamato": "Sì",
-                "esito": "Interessato (Ordine preso)",
-                "data_ricontatto": "",
-                "motivo_ricontatto": "",
-                "note": "Showroom storico vicino Piazza di Spagna | [2026-10-12 11:00] ORDINE CONFERMATO: € 6400.00 - Linea mocassini e décolleté artigianali",
-                "data_aggiornamento": "2026-10-12 11:00",
-                "ordini": [
-                    (3900.00, "Primo impianto linea cerimonia e mocassini", "2026-10-04 09:45"),
-                    (2500.00, "Integrazione taglie 37-40 color sabbia e noir", "2026-10-12 11:00"),
-                ],
-            },
-            {
-                "azienda": "Toscana Shoes & Leather S.n.c.",
-                "referente": "Lorenzo Guicciardini",
-                "telefono": "055 2233445",
-                "citta": "Firenze",
-                "regione": "Toscana",
-                "priorita": 1,
-                "chiamato": "Sì",
-                "esito": "Interessato (Ordine preso)",
-                "data_ricontatto": "",
-                "motivo_ricontatto": "",
-                "note": "Concept store lungarno, clientela internazionale | [2026-10-14 16:40] ORDINE CONFERMATO: € 5100.00 - Capsule artigianale NOGA",
-                "data_aggiornamento": "2026-10-14 16:40",
-                "ordini": [
-                    (5100.00, "Capsule artigianale NOGA ROMA 50 paia", "2026-10-14 16:40"),
-                ],
-            },
-            {
-                "azienda": "Partenope Moda Calzature S.r.l.",
-                "referente": "Cav. Gennaro Esposito",
-                "telefono": "081 7766554",
-                "citta": "Napoli",
-                "regione": "Campania",
-                "priorita": 2,
-                "chiamato": "Sì",
-                "esito": "Interessato (Ordine preso)",
-                "data_ricontatto": "",
-                "motivo_ricontatto": "",
-                "note": "2 punti vendita a Chiaia e Vomero | [2026-10-15 12:20] ORDINE CONFERMATO: € 2950.00 - Campionatura + primo ordine",
-                "data_aggiornamento": "2026-10-15 12:20",
-                "ordini": [
-                    (2950.00, "Campionatura + primo ordine stagione", "2026-10-15 12:20"),
-                ],
-            },
-            # Appuntamento 1: SCADUTO (Ieri alle 11:00)
-            {
-                "azienda": "Galleria Sabauda Footwear",
-                "referente": "Elena Ferrero",
-                "telefono": "011 4455667",
-                "citta": "Torino",
-                "regione": "Piemonte",
-                "priorita": 1,
-                "chiamato": "No",
-                "esito": "Da richiamare",
-                "data_ricontatto": f"{ieri_str} 11:00",
-                "motivo_ricontatto": "Appuntamento concordato",
-                "note": f"Titolare molto interessata al catalogo B2B | [{ieri_str} 09:30] RICONTATTO PROGRAMMATO PER {ieri_str} 11:00 (Appuntamento concordato) - Definire quantità ordine autunno",
-                "data_aggiornamento": f"{ieri_str} 09:30",
-                "ordini": [],
-            },
-            {
-                "azienda": "Emilia Boutique Calzature S.a.s.",
-                "referente": "Andrea Bentivoglio",
-                "telefono": "051 3344556",
-                "citta": "Bologna",
-                "regione": "Emilia-Romagna",
-                "priorita": 2,
-                "chiamato": "Sì",
-                "esito": "Interessato (Ordine preso)",
-                "data_ricontatto": "",
-                "motivo_ricontatto": "",
-                "note": "Negozio sotto i portici del centro | [2026-10-13 10:10] ORDINE CONFERMATO: € 2150.00 - Ordine prova collezione donna",
-                "data_aggiornamento": "2026-10-13 10:10",
-                "ordini": [
-                    (2150.00, "Ordine prova collezione donna", "2026-10-13 10:10"),
-                ],
-            },
-            # Appuntamento 2: OGGI (Orario 1)
-            {
-                "azienda": "Laguna Glamour Shoes",
-                "referente": "Alvise Contarini",
-                "telefono": "041 8899001",
-                "citta": "Venezia",
-                "regione": "Veneto",
-                "priorita": 1,
-                "chiamato": "No",
-                "esito": "Da richiamare",
-                "data_ricontatto": f"{oggi_str} {ora_oggi_1}",
-                "motivo_ricontatto": "Appuntamento concordato",
-                "note": f"Boutique di fascia alta a San Marco | [{oggi_str} 09:15] RICONTATTO PROGRAMMATO PER {oggi_str} {ora_oggi_1} (Appuntamento concordato) - Presentazione listino B2B",
-                "data_aggiornamento": f"{oggi_str} 09:15",
-                "ordini": [],
-            },
-            # Appuntamento 3: OGGI (Orario 2)
-            {
-                "azienda": "Adriatica Showroom S.r.l.",
-                "referente": "Dott. Nicola De Santis",
-                "telefono": "080 6677889",
-                "citta": "Bari",
-                "regione": "Puglia",
-                "priorita": 2,
-                "chiamato": "Sì",
-                "esito": "Da richiamare",
-                "data_ricontatto": f"{oggi_str} {ora_oggi_2}",
-                "motivo_ricontatto": "Titolare assente",
-                "note": f"Inviato catalogo WhatsApp e listino B2B | [{oggi_str} 10:00] RICONTATTO PROGRAMMATO PER {oggi_str} {ora_oggi_2} (Titolare assente) - Richiamare per chiusura ordine",
-                "data_aggiornamento": f"{oggi_str} 10:00",
-                "ordini": [],
-            },
-            {
-                "azienda": "Distretto Marche Concept Store",
-                "referente": "Federica Della Valle",
-                "telefono": "0733 998877",
-                "citta": "Civitanova Marche",
-                "regione": "Marche",
-                "priorita": 3,
-                "chiamato": "Sì",
-                "esito": "Non interessato (Rifiutato)",
-                "data_ricontatto": "",
-                "motivo_ricontatto": "",
-                "note": "Trattano solo produzione propria per questa stagione",
-                "data_aggiornamento": "2026-10-11 14:20",
-                "ordini": [],
-            },
-            # Appuntamento 4: FUTURO (Domani alle 10:00)
-            {
-                "azienda": "Trinacria Luxury Concept",
-                "referente": "Ruggero Altavilla",
-                "telefono": "091 5566778",
-                "citta": "Palermo",
-                "regione": "Sicilia",
-                "priorita": 2,
-                "chiamato": "No",
-                "esito": "Da richiamare",
-                "data_ricontatto": f"{domani_str} 10:00",
-                "motivo_ricontatto": "Non risponde / Segreteria",
-                "note": f"Punto vendita in Via Libertà | [{oggi_str} 11:20] RICONTATTO PROGRAMMATO PER {domani_str} 10:00 (Non risponde / Segreteria)",
-                "data_aggiornamento": f"{oggi_str} 11:20",
-                "ordini": [],
-            },
-            # Duplicato 1
-            {
-                "azienda": "Brera Luxury Milano (Showroom)",
-                "referente": "",
-                "telefono": "02-98765431",
-                "citta": "Milano",
-                "regione": "Lombardia",
-                "priorita": 2,
-                "chiamato": "No",
-                "esito": "Da richiamare",
-                "data_ricontatto": "",
-                "motivo_ricontatto": "",
-                "note": "Contatto raccolto in fiera MICAM - chiedere di Giulia Visconti per secondo punto vendita",
-                "data_aggiornamento": "2026-10-15 18:00",
-                "ordini": [
-                    (1450.00, "Pre-ordine fiera MICAM", "2026-10-15 18:00"),
-                ],
-            },
-            # Duplicato 2
-            {
-                "azienda": "Atelier del Passo Condotti S.R.L.",
-                "referente": "Marco Valeri (Buyer)",
-                "telefono": "06 55443399",
-                "citta": "Roma",
-                "regione": "Lazio",
-                "priorita": 3,
-                "chiamato": "No",
-                "esito": "In attesa",
-                "data_ricontatto": "",
-                "motivo_ricontatto": "",
-                "note": "Interno ufficio acquisti secondario Via Condotti",
-                "data_aggiornamento": "2026-10-14 09:00",
-                "ordini": [],
-            },
-        ]
+        for item in lista_contatti:
+            if not isinstance(item, dict):
+                continue
+            azienda = str(item.get("azienda", "")).strip()
+            telefono = str(item.get("telefono", "")).strip()
+            if not azienda or not telefono:
+                continue
+            if azienda.lower() in AZIENDE_DEMO_OBSOLETE:
+                continue
 
-        for item in demo_leads:
-            ordini = item.get("ordini", [])
-            tot_ord = round(sum(o[0] for o in ordini), 2)
-            num_ord = len(ordini)
-            cur.execute(
-                """
-                INSERT INTO contatti_ingrosso (
-                    azienda, referente, telefono, citta, regione, note,
-                    chiamato, esito, priorita, totale_ordini, numero_ordini,
-                    data_ricontatto, motivo_ricontatto, data_aggiornamento
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    item["azienda"],
-                    item["referente"],
-                    item["telefono"],
-                    item["citta"],
-                    item["regione"],
-                    item["note"],
-                    item["chiamato"],
-                    item["esito"],
-                    item["priorita"],
-                    tot_ord,
-                    num_ord,
-                    item.get("data_ricontatto", ""),
-                    item.get("motivo_ricontatto", ""),
-                    item["data_aggiornamento"],
-                ),
-            )
-            cid = cur.lastrowid
-            for imp, n_ord, d_ord in ordini:
+            tel_norm = normalizza_telefono(telefono)
+            if not tel_norm:
+                continue
+
+            referente = str(item.get("referente", "")).strip()
+            citta = str(item.get("citta", "")).strip()
+            regione = str(item.get("regione", "")).strip() or deduci_regione(citta)
+            note = str(item.get("note", "")).strip()
+            chiamato = "Sì" if str(item.get("chiamato", "No")).strip() in ("Sì", "Si", "sì", "si") else "No"
+            esito = str(item.get("esito", "In attesa")).strip() or "In attesa"
+            priorita = _parse_priorita(item.get("priorita", 2), default=2)
+            totale_ordini = _parse_importo(item.get("totale_ordini", 0.0), default=0.0)
+            numero_ordini = int(item.get("numero_ordini", 0) or 0)
+            data_ric = _normalizza_data_ricontatto(item.get("data_ricontatto", ""))
+            motivo_ric = str(item.get("motivo_ricontatto", "")).strip() if data_ric else ""
+            data_agg = str(item.get("data_aggiornamento", "")).strip() or adesso_str
+            ordini_storico = item.get("ordini_storico", [])
+
+            if tel_norm in esistenti_per_tel:
+                cid = esistenti_per_tel[tel_norm]
                 cur.execute(
                     """
-                    INSERT INTO storico_ordini (contatto_id, importo, note_ordine, data_ordine)
-                    VALUES (?, ?, ?, ?)
+                    UPDATE contatti_ingrosso
+                    SET azienda = ?, referente = ?, telefono = ?, citta = ?, regione = ?,
+                        note = ?, chiamato = ?, esito = ?, priorita = ?,
+                        totale_ordini = ?, numero_ordini = ?,
+                        data_ricontatto = ?, motivo_ricontatto = ?, data_aggiornamento = ?
+                    WHERE id = ?
                     """,
-                    (cid, imp, n_ord, d_ord),
+                    (
+                        azienda, referente, telefono, citta, regione,
+                        note, chiamato, esito, priorita,
+                        totale_ordini, numero_ordini,
+                        data_ric, motivo_ric, data_agg, cid,
+                    ),
                 )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO contatti_ingrosso (
+                        azienda, referente, telefono, citta, regione, note,
+                        chiamato, esito, priorita, totale_ordini, numero_ordini,
+                        data_ricontatto, motivo_ricontatto, data_aggiornamento
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        azienda, referente, telefono, citta, regione, note,
+                        chiamato, esito, priorita, totale_ordini, numero_ordini,
+                        data_ric, motivo_ric, data_agg,
+                    ),
+                )
+                cid = cur.lastrowid
+                esistenti_per_tel[tel_norm] = cid
+
+            if isinstance(ordini_storico, list) and len(ordini_storico) > 0:
+                cur.execute("SELECT COUNT(*) AS cnt FROM storico_ordini WHERE contatto_id = ?", (cid,))
+                if cur.fetchone()["cnt"] == 0:
+                    for o in ordini_storico:
+                        if isinstance(o, dict):
+                            imp = _parse_importo(o.get("importo", 0.0), default=0.0)
+                            if imp > 0:
+                                cur.execute(
+                                    """
+                                    INSERT INTO storico_ordini (contatto_id, importo, note_ordine, data_ordine)
+                                    VALUES (?, ?, ?, ?)
+                                    """,
+                                    (
+                                        cid,
+                                        imp,
+                                        str(o.get("note_ordine", "")).strip(),
+                                        str(o.get("data_ordine", "")).strip() or data_agg,
+                                    ),
+                                )
+                    _ricalcola_ordini_contatto(cur, cid)
+
+            sincronizzati += 1
 
         conn.commit()
         conn.close()
-        return {"inseriti": len(demo_leads), "duplicati": 0, "errori": 0, "totale_file": len(demo_leads)}
+        return {"ok": True, "sincronizzati": sincronizzati}
     except sqlite3.Error as e:
-        print(f"Errore in ripristina_dati_demo: {e}")
-        return {"errore": str(e)}
+        print(f"Errore in sincronizza_snapshot_client: {e}")
+        return {"ok": False, "errore": str(e)}
+
+
+def ripristina_dati_demo():
+    """Funzione demo disattivata nella versione definitiva di produzione."""
+    crea_tabella()
+    return {"inseriti": 0, "duplicati": 0, "errori": 0, "totale_file": 0}
 
 
 # ==============================================================================

@@ -36,10 +36,34 @@
     [editMenuItem setSubmenu:editMenu];
 }
 
+- (void)aggiornaUserScriptSuController:(WKUserContentController *)controller conJson:(NSString *)jsonStr {
+    if (!controller || !jsonStr || [jsonStr length] < 2) return;
+    [controller removeAllUserScripts];
+    NSString *jsSource = [NSString stringWithFormat:@"window.__NOGA_DISK_DB__ = %@;", jsonStr];
+    WKUserScript *diskScript = [[WKUserScript alloc] initWithSource:jsSource
+                                                      injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                                   forMainFrameOnly:NO];
+    [controller addUserScript:diskScript];
+}
+
+- (void)ripristinaDatiDaDiscoNelWebView:(NSNotification *)note {
+    if (!self.webView || !self.persistentJsonPath) return;
+    if ([[NSFileManager defaultManager] fileExistsAtPath:self.persistentJsonPath]) {
+        NSString *savedJson = [NSString stringWithContentsOfFile:self.persistentJsonPath
+                                                        encoding:NSUTF8StringEncoding
+                                                           error:nil];
+        if (savedJson && [savedJson length] >= 2) {
+            [self aggiornaUserScriptSuController:self.webView.configuration.userContentController conJson:savedJson];
+            NSString *jsCall = [NSString stringWithFormat:@"window.__NOGA_DISK_DB__ = %@; if (window.__nogaRipristinaDaDisco) { window.__nogaRipristinaDaDisco(%@); }", savedJson, savedJson];
+            [self.webView evaluateJavaScript:jsCall completionHandler:nil];
+        }
+    }
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     [self setupMenuBar];
 
-    // Imposta l'icona ufficiale "NA" NOGA ROMA nel Dock e nella finestra
+    // Imposta l'icona ufficiale "N-G" NOGA ROMA nel Dock e nella finestra
     NSString *appDir = [[self.targetPathOrUrl stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
     NSString *icnsPath = [appDir stringByAppendingPathComponent:@"AppIcon.icns"];
     if ([[NSFileManager defaultManager] fileExistsAtPath:icnsPath]) {
@@ -87,12 +111,8 @@
         NSString *savedJson = [NSString stringWithContentsOfFile:self.persistentJsonPath
                                                         encoding:NSUTF8StringEncoding
                                                            error:nil];
-        if (savedJson && [savedJson length] > 2) {
-            NSString *jsSource = [NSString stringWithFormat:@"window.__NOGA_DISK_DB__ = %@;", savedJson];
-            WKUserScript *diskScript = [[WKUserScript alloc] initWithSource:jsSource
-                                                              injectionTime:WKUserScriptInjectionTimeAtDocumentStart
-                                                           forMainFrameOnly:NO];
-            [config.userContentController addUserScript:diskScript];
+        if (savedJson && [savedJson length] >= 2) {
+            [self aggiornaUserScriptSuController:config.userContentController conJson:savedJson];
         }
     }
 
@@ -103,6 +123,16 @@
     [self.webView setNavigationDelegate:self];
 
     [[self.window contentView] addSubview:self.webView];
+
+    // Ascolta il risveglio dallo standby del Mac e il ritorno in primo piano dell'app
+    [[[NSWorkspace sharedWorkspace] notificationCenter] addObserver:self
+                                                           selector:@selector(ripristinaDatiDaDiscoNelWebView:)
+                                                               name:NSWorkspaceDidWakeNotification
+                                                             object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(ripristinaDatiDaDiscoNelWebView:)
+                                                 name:NSApplicationDidBecomeActiveNotification
+                                               object:nil];
 
     if ([self.targetPathOrUrl hasPrefix:@"http://"] || [self.targetPathOrUrl hasPrefix:@"https://"]) {
         NSURL *url = [NSURL URLWithString:self.targetPathOrUrl];
@@ -120,15 +150,33 @@
 
 - (void)userContentController:(WKUserContentController *)userContentController
       didReceiveScriptMessage:(WKScriptMessage *)message {
-    if ([message.name isEqualToString:@"nogaSaveDisk"] && [message.body isKindOfClass:[NSString class]]) {
-        NSString *jsonStr = (NSString *)message.body;
-        if (self.persistentJsonPath && [jsonStr length] > 2) {
+    if ([message.name isEqualToString:@"nogaSaveDisk"]) {
+        NSString *jsonStr = nil;
+        if ([message.body isKindOfClass:[NSString class]]) {
+            jsonStr = (NSString *)message.body;
+        } else if (message.body) {
+            jsonStr = [NSString stringWithFormat:@"%@", message.body];
+        }
+        if (self.persistentJsonPath && jsonStr && [jsonStr length] >= 2) {
             [jsonStr writeToFile:self.persistentJsonPath
                       atomically:YES
                         encoding:NSUTF8StringEncoding
                            error:nil];
+            [self aggiornaUserScriptSuController:userContentController conJson:jsonStr];
         }
     }
+}
+
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
+    if (self.persistentJsonPath && [[NSFileManager defaultManager] fileExistsAtPath:self.persistentJsonPath]) {
+        NSString *savedJson = [NSString stringWithContentsOfFile:self.persistentJsonPath
+                                                        encoding:NSUTF8StringEncoding
+                                                           error:nil];
+        if (savedJson && [savedJson length] >= 2) {
+            [self aggiornaUserScriptSuController:webView.configuration.userContentController conJson:savedJson];
+        }
+    }
+    [webView reload];
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {

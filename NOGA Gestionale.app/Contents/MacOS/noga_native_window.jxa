@@ -19,13 +19,29 @@ ObjC.registerSubclass({
                 try {
                     var name = ObjC.unwrap(message.name);
                     if (name === 'nogaSaveDisk' && GLOBAL_JSON_PATH) {
-                        var bodyStr = message.body;
-                        bodyStr.writeToFileAtomicallyEncodingError(
-                            $(GLOBAL_JSON_PATH),
-                            true,
-                            $.NSUTF8StringEncoding,
-                            null
-                        );
+                        var rawStr = String(ObjC.unwrap(message.body));
+                        if (rawStr && rawStr.length >= 2) {
+                            $(rawStr).writeToFileAtomicallyEncodingError(
+                                $(GLOBAL_JSON_PATH),
+                                true,
+                                $.NSUTF8StringEncoding,
+                                null
+                            );
+                            controller.removeAllUserScripts;
+                            var diskBoot = "window.__NOGA_DISK_DB__ = " + rawStr + ";";
+                            var diskScript = $.WKUserScript.alloc.initWithSourceInjectionTimeForMainFrameOnly(
+                                $(diskBoot),
+                                $.WKUserScriptInjectionTimeAtDocumentStart,
+                                false
+                            );
+                            controller.addUserScript(diskScript);
+                            var confirmScript = $.WKUserScript.alloc.initWithSourceInjectionTimeForMainFrameOnly(
+                                $("window.confirm = function(msg) { return true; };"),
+                                $.WKUserScriptInjectionTimeAtDocumentStart,
+                                false
+                            );
+                            controller.addUserScript(confirmScript);
+                        }
                     }
                 } catch (e) {}
             }
@@ -47,7 +63,7 @@ function run(argv) {
     var app = $.NSApplication.sharedApplication;
     app.setActivationPolicy($.NSApplicationActivationPolicyRegular);
 
-    // Imposta icona "NA" NOGA ROMA nel Dock
+    // Imposta icona "N-G" NOGA ROMA nel Dock
     var resourcesDir = $(htmlPath).stringByDeletingLastPathComponent.stringByDeletingLastPathComponent;
     var icnsPath = resourcesDir.stringByAppendingPathComponent($("AppIcon.icns"));
     if ($.NSFileManager.defaultManager.fileExistsAtPath(icnsPath)) {
@@ -118,7 +134,7 @@ function run(argv) {
             $.NSUTF8StringEncoding,
             null
         );
-        if (savedJson && ObjC.unwrap(savedJson).length > 2) {
+        if (savedJson && ObjC.unwrap(savedJson).length >= 2) {
             var diskBoot = "window.__NOGA_DISK_DB__ = " + ObjC.unwrap(savedJson) + ";";
             var diskScript = $.WKUserScript.alloc.initWithSourceInjectionTimeForMainFrameOnly(
                 $(diskBoot),

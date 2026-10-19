@@ -3503,10 +3503,7 @@ textarea.form-control {
 
         <div class="import-actions-row">
           <button type="button" class="btn btn-outline w-100" id="btnCaricaFileJson">
-            Sfoglia File Locale (.json / .csv / .txt)
-          </button>
-          <button type="button" class="btn btn-outline w-100" id="btnImportaDefaultFile">
-            Carica 'contatti_lead.json' dal Server
+            Sfoglia File dal Computer (.json / .csv / .txt)
           </button>
         </div>
 
@@ -3727,7 +3724,46 @@ const NOMI_MESI_IT = [
   "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE"
 ];
 
-const STORAGE_KEY_CONTATTI = "noga_roma_macos_db_v3";
+const STORAGE_KEY_CONTATTI = "noga_roma_prod_db_v5";
+const LEGACY_STORAGE_KEY = "noga_roma_macos_db_v3";
+
+const AZIENDE_DEMO_OBSOLETE_CLIENT = new Set([
+  "calzature brera luxury s.r.l.",
+  "atelier del passo condotti",
+  "toscana shoes & leather s.n.c.",
+  "partenope moda calzature s.r.l.",
+  "galleria sabauda footwear",
+  "emilia boutique calzature s.a.s.",
+  "san marco luxury shoes",
+  "laguna glamour shoes",
+  "bari moda & pelle s.r.l.",
+  "adriatica showroom s.r.l.",
+  "via libertà concept store",
+  "trinacria luxury concept",
+  "lanterna calzature s.n.c.",
+  "distretto marche concept store",
+  "brera luxury milano (showroom)",
+  "atelier del passo condotti srl",
+  "atelier del passo condotti s.r.l.",
+  "calzature rossi s.r.l.",
+  "boutique della scarpa",
+  "moda & stile s.n.c.",
+  "grandi magazzini sud",
+  "step बाय step torino",
+  "calzature montenapoleone srl",
+  "boutique piazza navona",
+  "pelletteria & scarpe ponte vecchio"
+]);
+
+function filtraContattiNonDemo(lista) {
+  if (!Array.isArray(lista)) return [];
+  return lista.filter(c => {
+    if (!c || typeof c !== "object") return false;
+    const nome = String(c.azienda || "").trim().toLowerCase();
+    return nome && !AZIENDE_DEMO_OBSOLETE_CLIENT.has(nome);
+  });
+}
+
 const oggiInit = new Date();
 
 const state = {
@@ -3778,10 +3814,43 @@ const state = {
 
 const API_BASE = window.location.origin.startsWith("http") ? "" : "http://127.0.0.1:8080";
 
+// Hook globale richiamato da macOS Cocoa/WebKit al risveglio dallo standby (NSWorkspaceDidWakeNotification)
+window.__nogaRipristinaDaDisco = function(datiDisco) {
+  if (Array.isArray(datiDisco)) {
+    const puliti = filtraContattiNonDemo(datiDisco);
+    window.__NOGA_DISK_DB__ = puliti;
+    if (!state.contatti || state.contatti.length === 0 || puliti.length >= state.contatti.length) {
+      state.contatti = puliti.map(arricchisciContattoClient);
+      salvaStorageLocale();
+      ricalcolaTuttoInLocale();
+      renderAll();
+    }
+  }
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   setupNavigation();
   setupEventListeners();
+  caricaDatiDefaultLocali();
+  renderAll();
   loadData();
+
+  // Protezione anti-standby macOS: salva sempre su disco prima della sospensione e ripristina al risveglio
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      salvaStorageLocale();
+    } else if (document.visibilityState === "visible") {
+      const salvati = ottieniSnapshotLocaleSalvato();
+      if (salvati && salvati.length > 0 && (!state.contatti || state.contatti.length === 0)) {
+        state.contatti = salvati.map(arricchisciContattoClient);
+      }
+      ricalcolaTuttoInLocale();
+      renderAll();
+    }
+  });
+
+  window.addEventListener("pagehide", () => salvaStorageLocale());
+  window.addEventListener("beforeunload", () => salvaStorageLocale());
 });
 
 // ==============================================================================
@@ -3989,41 +4058,64 @@ async function fetchConTimeout(url, options = {}, timeoutMs = 1200) {
   }
 }
 
-async function loadData() {
+async function loadData(options = {}) {
+  const postMutazioneServer = Boolean(options && options.postMutazioneServer);
+
+  // 1. Se non proveniamo da una mutazione appena eseguita sul server, salva in anticipo lo stato in memoria
+  if (!postMutazioneServer && Array.isArray(state.contatti) && state.contatti.length > 0) {
+    salvaStorageLocale();
+  }
+
+  const snapshotLocale = ottieniSnapshotLocaleSalvato();
+
   try {
     const res = await fetchConTimeout(`${API_BASE}/api/contatti`);
     if (!res.ok) throw new Error("Server non attivo");
     const json = await res.json();
     if (json.ok && Array.isArray(json.data)) {
-      let listaServer = json.data;
-      const snapshotLocale = ottieniSnapshotLocaleSalvato();
-      if (snapshotLocale && Array.isArray(snapshotLocale) && snapshotLocale.length > 0) {
-        const telefoniServer = new Set(listaServer.map(c => normalizzaTelefonoClient(c.telefono)));
-        const mancantiSuServer = snapshotLocale.filter(c => {
-          const tel = normalizzaTelefonoClient(c.telefono);
-          return tel && !telefoniServer.has(tel);
-        });
-        if (mancantiSuServer.length > 0) {
-          try {
-            await fetchConTimeout(`${API_BASE}/api/importa`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contenuto: JSON.stringify(mancantiSuServer),
-                formato: "json"
-              })
-            });
-            const resSync = await fetchConTimeout(`${API_BASE}/api/contatti`);
-            const jsonSync = await resSync.json();
-            if (jsonSync.ok && Array.isArray(jsonSync.data)) {
-              listaServer = jsonSync.data;
-            }
-          } catch (syncErr) {
-            // Se la sincronizzazione fallisce mantieni unione in memoria
-            listaServer = [...listaServer, ...mancantiSuServer];
+      let listaServer = filtraContattiNonDemo(json.data);
+
+      // Sincronizza contatti salvati localmente nel DB SQLite (es. aggiunti offline o durante standby)
+      if (!postMutazioneServer && snapshotLocale && Array.isArray(snapshotLocale) && snapshotLocale.length > 0) {
+        try {
+          await fetchConTimeout(`${API_BASE}/api/sincronizza-snapshot`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contatti: snapshotLocale })
+          });
+          const resSync = await fetchConTimeout(`${API_BASE}/api/contatti`);
+          const jsonSync = await resSync.json();
+          if (jsonSync.ok && Array.isArray(jsonSync.data)) {
+            listaServer = filtraContattiNonDemo(jsonSync.data);
           }
+        } catch (syncErr) {
+          const telefoniServer = new Set(listaServer.map(c => normalizzaTelefonoClient(c.telefono)));
+          const mancanti = snapshotLocale.filter(c => {
+            const tel = normalizzaTelefonoClient(c.telefono);
+            return tel && !telefoniServer.has(tel);
+          });
+          listaServer = [...listaServer, ...mancanti];
         }
       }
+
+      // Preserva lo storico ordini dettagliato dai contatti locali se presente
+      if (snapshotLocale && Array.isArray(snapshotLocale) && snapshotLocale.length > 0) {
+        const mappaOrdiniLocali = new Map();
+        snapshotLocale.forEach(c => {
+          const tel = normalizzaTelefonoClient(c.telefono);
+          if (tel && Array.isArray(c.ordini_storico) && c.ordini_storico.length > 0) {
+            mappaOrdiniLocali.set(tel, c.ordini_storico);
+          }
+        });
+        listaServer = listaServer.map(c => {
+          const tel = normalizzaTelefonoClient(c.telefono);
+          if ((!c.ordini_storico || c.ordini_storico.length === 0) && mappaOrdiniLocali.has(tel)) {
+            return { ...c, ordini_storico: mappaOrdiniLocali.get(tel) };
+          }
+          return c;
+        });
+      }
+
       state.contatti = listaServer.map(arricchisciContattoClient);
       state.isApiAvailable = true;
       salvaStorageLocale();
@@ -4033,11 +4125,11 @@ async function loadData() {
   } catch (err) {
     state.isApiAvailable = false;
     aggiornaBadgeStatoDb(false);
-    if (!state.contatti || state.contatti.length === 0) {
-      caricaDatiDefaultLocali();
-    } else {
-      ricalcolaTuttoInLocale();
+    const salvati = ottieniSnapshotLocaleSalvato();
+    if (Array.isArray(salvati) && (salvati.length > 0 || !Array.isArray(state.contatti))) {
+      state.contatti = salvati.map(arricchisciContattoClient);
     }
+    ricalcolaTuttoInLocale();
   }
 
   renderAll();
@@ -4180,303 +4272,61 @@ function aggiornaBadgeStatoDb(serverAttivo) {
   }
 }
 
-function generaDatasetDemoCompleto() {
-  const now = new Date();
-  const ieri = new Date(now.getTime() - 86400000);
-  const domani = new Date(now.getTime() + 86400000);
-  const tra3gg = new Date(now.getTime() + 3 * 86400000);
-
-  const ieriStr = formatDateISO(ieri);
-  const oggiStr = formatDateISO(now);
-  const domaniStr = formatDateISO(domani);
-  const tra3ggStr = formatDateISO(tra3gg);
-
-  const oraOggi1 = now.getHours() < 22 ? `${pad2(now.getHours() + 1)}:00` : "23:30";
-  const oraOggi2 = now.getHours() >= 17 ? "23:45" : "17:30";
-
-  return [
-    {
-      id: 1,
-      azienda: "Calzature Brera Luxury S.r.l.",
-      referente: "Dott.ssa Giulia Visconti",
-      telefono: "+39 02 98765431",
-      citta: "Milano",
-      regione: "Lombardia",
-      priorita: 1,
-      chiamato: "Sì",
-      esito: "Interessato (Ordine preso)",
-      totale_ordini: 8050.0,
-      numero_ordini: 2,
-      data_ricontatto: `${tra3ggStr} 11:00`,
-      motivo_ricontatto: "Follow-up nuovo ordine",
-      note: "Catena con 3 boutique in centro a Milano | [2026-10-10 10:30] ORDINE CONFERMATO: € 4850.00 - Collezione Autunno/Inverno Donna | [2026-10-16 15:15] ORDINE CONFERMATO: € 3200.00 - Riassortimento stivaletti pelle",
-      data_aggiornamento: "2026-10-16 15:15",
-      ultimo_ordine: "2026-10-16 15:15",
-      ordini_storico: [
-        { id: 102, contatto_id: 1, importo: 3200.0, note_ordine: "Riassortimento stivaletti pelle NOGA ROMA", data_ordine: "2026-10-16 15:15" },
-        { id: 101, contatto_id: 1, importo: 4850.0, note_ordine: "Collezione Autunno/Inverno Donna - 45 paia", data_ordine: "2026-10-10 10:30" }
-      ]
-    },
-    {
-      id: 2,
-      azienda: "Atelier del Passo Condotti",
-      referente: "Marco Valeri",
-      telefono: "06 55443322",
-      citta: "Roma",
-      regione: "Lazio",
-      priorita: 1,
-      chiamato: "Sì",
-      esito: "Interessato (Ordine preso)",
-      totale_ordini: 6400.0,
-      numero_ordini: 2,
-      data_ricontatto: "",
-      motivo_ricontatto: "",
-      note: "Showroom storico vicino Piazza di Spagna | [2026-10-12 11:00] ORDINE CONFERMATO: € 6400.00 - Linea mocassini e décolleté artigianali",
-      data_aggiornamento: "2026-10-12 11:00",
-      ultimo_ordine: "2026-10-12 11:00",
-      ordini_storico: [
-        { id: 202, contatto_id: 2, importo: 2500.0, note_ordine: "Integrazione taglie 37-40 color sabbia e noir", data_ordine: "2026-10-12 11:00" },
-        { id: 201, contatto_id: 2, importo: 3900.0, note_ordine: "Primo impianto linea cerimonia e mocassini", data_ordine: "2026-10-04 09:45" }
-      ]
-    },
-    {
-      id: 3,
-      azienda: "Toscana Shoes & Leather S.n.c.",
-      referente: "Lorenzo Guicciardini",
-      telefono: "055 2233445",
-      citta: "Firenze",
-      regione: "Toscana",
-      priorita: 1,
-      chiamato: "Sì",
-      esito: "Interessato (Ordine preso)",
-      totale_ordini: 5100.0,
-      numero_ordini: 1,
-      data_ricontatto: "",
-      motivo_ricontatto: "",
-      note: "Concept store lungarno, clientela internazionale | [2026-10-14 16:40] ORDINE CONFERMATO: € 5100.00 - Capsule artigianale NOGA",
-      data_aggiornamento: "2026-10-14 16:40",
-      ultimo_ordine: "2026-10-14 16:40",
-      ordini_storico: [
-        { id: 301, contatto_id: 3, importo: 5100.0, note_ordine: "Capsule artigianale NOGA ROMA 50 paia", data_ordine: "2026-10-14 16:40" }
-      ]
-    },
-    {
-      id: 4,
-      azienda: "Partenope Moda Calzature S.r.l.",
-      referente: "Cav. Gennaro Esposito",
-      telefono: "081 7766554",
-      citta: "Napoli",
-      regione: "Campania",
-      priorita: 2,
-      chiamato: "Sì",
-      esito: "Interessato (Ordine preso)",
-      totale_ordini: 2950.0,
-      numero_ordini: 1,
-      data_ricontatto: "",
-      motivo_ricontatto: "",
-      note: "2 punti vendita a Chiaia e Vomero | [2026-10-15 12:20] ORDINE CONFERMATO: € 2950.00 - Campionatura + primo ordine",
-      data_aggiornamento: "2026-10-15 12:20",
-      ultimo_ordine: "2026-10-15 12:20",
-      ordini_storico: [
-        { id: 401, contatto_id: 4, importo: 2950.0, note_ordine: "Campionatura + primo ordine stagione", data_ordine: "2026-10-15 12:20" }
-      ]
-    },
-    {
-      id: 5,
-      azienda: "Galleria Sabauda Footwear",
-      referente: "Elena Ferrero",
-      telefono: "011 4455667",
-      citta: "Torino",
-      regione: "Piemonte",
-      priorita: 1,
-      chiamato: "No",
-      esito: "Da richiamare",
-      totale_ordini: 0.0,
-      numero_ordini: 0,
-      data_ricontatto: `${ieriStr} 11:00`,
-      motivo_ricontatto: "Appuntamento concordato",
-      note: `Titolare molto interessata al catalogo B2B | [${ieriStr} 09:30] RICONTATTO PROGRAMMATO PER ${ieriStr} 11:00 (Appuntamento concordato) - Definire quantità ordine autunno`,
-      data_aggiornamento: `${ieriStr} 09:30`,
-      ultimo_ordine: "",
-      ordini_storico: []
-    },
-    {
-      id: 6,
-      azienda: "Emilia Boutique Calzature S.a.s.",
-      referente: "Andrea Bentivoglio",
-      telefono: "051 3344556",
-      citta: "Bologna",
-      regione: "Emilia-Romagna",
-      priorita: 2,
-      chiamato: "Sì",
-      esito: "Interessato (Ordine preso)",
-      totale_ordini: 2150.0,
-      numero_ordini: 1,
-      data_ricontatto: "",
-      motivo_ricontatto: "",
-      note: "Negozio sotto i portici del centro | [2026-10-13 10:10] ORDINE CONFERMATO: € 2150.00 - Ordine prova collezione donna",
-      data_aggiornamento: "2026-10-13 10:10",
-      ultimo_ordine: "2026-10-13 10:10",
-      ordini_storico: [
-        { id: 601, contatto_id: 6, importo: 2150.0, note_ordine: "Ordine prova collezione donna", data_ordine: "2026-10-13 10:10" }
-      ]
-    },
-    {
-      id: 7,
-      azienda: "San Marco Luxury Shoes",
-      referente: "Alvise Contarini",
-      telefono: "041 9988776",
-      citta: "Venezia",
-      regione: "Veneto",
-      priorita: 1,
-      chiamato: "No",
-      esito: "Da richiamare",
-      totale_ordini: 0.0,
-      numero_ordini: 0,
-      data_ricontatto: `${oggiStr} ${oraOggi1}`,
-      motivo_ricontatto: "Titolare assente - Richiamare",
-      note: `Inviato lookbook digitale su WhatsApp | [${oggiStr} 09:00] RICONTATTO PROGRAMMATO PER ${oggiStr} ${oraOggi1} (Titolare assente - Richiamare) - Parlare con Sig. Contarini`,
-      data_aggiornamento: `${oggiStr} 09:00`,
-      ultimo_ordine: "",
-      ordini_storico: []
-    },
-    {
-      id: 8,
-      azienda: "Bari Moda & Pelle S.r.l.",
-      referente: "Domenico De Santis",
-      telefono: "080 6655443",
-      citta: "Bari",
-      regione: "Puglia",
-      priorita: 2,
-      chiamato: "No",
-      esito: "Da richiamare",
-      totale_ordini: 0.0,
-      numero_ordini: 0,
-      data_ricontatto: `${oggiStr} ${oraOggi2}`,
-      motivo_ricontatto: "Non risponde - Riprovare",
-      note: `Distributore regionale con 4 negozi | [${oggiStr} 10:15] RICONTATTO PROGRAMMATO PER ${oggiStr} ${oraOggi2} (Non risponde - Riprovare) - Riprovare nel pomeriggio`,
-      data_aggiornamento: `${oggiStr} 10:15`,
-      ultimo_ordine: "",
-      ordini_storico: []
-    },
-    {
-      id: 9,
-      azienda: "Via Libertà Concept Store",
-      referente: "Costanza Altavilla",
-      telefono: "091 5566778",
-      citta: "Palermo",
-      regione: "Sicilia",
-      priorita: 1,
-      chiamato: "No",
-      esito: "Da richiamare",
-      totale_ordini: 0.0,
-      numero_ordini: 0,
-      data_ricontatto: `${domaniStr} 10:30`,
-      motivo_ricontatto: "Appuntamento concordato",
-      note: `Richiede esclusiva di zona per il quartiere Libertà | [${oggiStr} 11:00] RICONTATTO PROGRAMMATO PER ${domaniStr} 10:30 (Appuntamento concordato)`,
-      data_aggiornamento: `${oggiStr} 11:00`,
-      ultimo_ordine: "",
-      ordini_storico: []
-    },
-    {
-      id: 10,
-      azienda: "Lanterna Calzature S.n.c.",
-      referente: "Stefano Parodi",
-      telefono: "010 4433221",
-      citta: "Genova",
-      regione: "Liguria",
-      priorita: 3,
-      chiamato: "Sì",
-      esito: "Non interessato (Rifiutato)",
-      totale_ordini: 0.0,
-      numero_ordini: 0,
-      data_ricontatto: "",
-      motivo_ricontatto: "",
-      note: "Magazzino già saturo per la stagione corrente.",
-      data_aggiornamento: "2026-10-09 15:30",
-      ultimo_ordine: "",
-      ordini_storico: []
-    },
-    {
-      id: 11,
-      azienda: "Brera Luxury Milano (Showroom)",
-      referente: "",
-      telefono: "02-98765431",
-      citta: "Milano",
-      regione: "Lombardia",
-      priorita: 2,
-      chiamato: "No",
-      esito: "Da richiamare",
-      totale_ordini: 1450.0,
-      numero_ordini: 1,
-      data_ricontatto: "",
-      motivo_ricontatto: "",
-      note: "Scheda inserita da fiera MICAM (da unire con Calzature Brera Luxury)",
-      data_aggiornamento: "2026-10-15 18:00",
-      ultimo_ordine: "2026-10-15 18:00",
-      ordini_storico: [
-        { id: 1101, contatto_id: 11, importo: 1450.0, note_ordine: "Ordine rapido fiera MICAM", data_ordine: "2026-10-15 18:00" }
-      ]
-    },
-    {
-      id: 12,
-      azienda: "Atelier del Passo Condotti Srl",
-      referente: "M. Valeri",
-      telefono: "+39 06 55443399",
-      citta: "Roma",
-      regione: "Lazio",
-      priorita: 3,
-      chiamato: "No",
-      esito: "In attesa",
-      totale_ordini: 0.0,
-      numero_ordini: 0,
-      data_ricontatto: "",
-      motivo_ricontatto: "",
-      note: "Secondo recapito ufficio amministrazione Roma",
-      data_aggiornamento: "2026-10-11 09:30",
-      ultimo_ordine: "",
-      ordini_storico: []
-    }
-  ].map(arricchisciContattoClient);
-}
-
 function ottieniSnapshotLocaleSalvato() {
-  if (window.__NOGA_DISK_DB__ && Array.isArray(window.__NOGA_DISK_DB__) && window.__NOGA_DISK_DB__.length > 0) {
-    return window.__NOGA_DISK_DB__;
+  let daDisco = [];
+  if (window.__NOGA_DISK_DB__ && Array.isArray(window.__NOGA_DISK_DB__)) {
+    daDisco = filtraContattiNonDemo(window.__NOGA_DISK_DB__);
   }
-  const salvati = localStorage.getItem(STORAGE_KEY_CONTATTI);
-  if (salvati) {
-    try {
+
+  let daLocalStorage = [];
+  try {
+    const salvati = localStorage.getItem(STORAGE_KEY_CONTATTI);
+    if (salvati) {
       const parsed = JSON.parse(salvati);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+      if (Array.isArray(parsed)) {
+        daLocalStorage = filtraContattiNonDemo(parsed);
       }
-    } catch (e) {
-      // Ignora JSON corrotto
+    } else {
+      const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacy) {
+        const parsedLegacy = JSON.parse(legacy);
+        if (Array.isArray(parsedLegacy)) {
+          daLocalStorage = filtraContattiNonDemo(parsedLegacy);
+        }
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
     }
+  } catch (e) {
+    // Ignora JSON corrotto
   }
-  return null;
+
+  if (daDisco.length > 0 && daLocalStorage.length === 0) {
+    return daDisco;
+  }
+  if (daLocalStorage.length > 0 && daDisco.length === 0) {
+    return daLocalStorage;
+  }
+  if (daDisco.length > 0 && daLocalStorage.length > 0) {
+    return daDisco.length >= daLocalStorage.length ? daDisco : daLocalStorage;
+  }
+  return [];
 }
 
 function caricaDatiDefaultLocali() {
   const salvati = ottieniSnapshotLocaleSalvato();
-  if (salvati) {
-    state.contatti = salvati.map(arricchisciContattoClient);
-    salvaStorageLocale();
-    ricalcolaTuttoInLocale();
-    return;
-  }
-
-  state.contatti = generaDatasetDemoCompleto();
+  state.contatti = Array.isArray(salvati) ? salvati.map(arricchisciContattoClient) : [];
   salvaStorageLocale();
   ricalcolaTuttoInLocale();
 }
 
 function salvaStorageLocale() {
-  const serialized = JSON.stringify(state.contatti);
-  window.__NOGA_DISK_DB__ = state.contatti;
+  const listaPulita = filtraContattiNonDemo(state.contatti || []);
+  state.contatti = listaPulita;
+  const serialized = JSON.stringify(listaPulita);
+  window.__NOGA_DISK_DB__ = listaPulita;
   try {
     localStorage.setItem(STORAGE_KEY_CONTATTI, serialized);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch (e) {
     // Storage non disponibile
   }
@@ -5449,7 +5299,7 @@ async function ciclaPriorita(idContatto, prioritaAttuale) {
       const json = await res.json();
       if (json.ok) {
         showToast(`Priorità #${idContatto} impostata a ${labels[prossima]}`, "success");
-        await loadData();
+        await loadData({ postMutazioneServer: true });
         return;
       }
     } catch (err) {
@@ -5570,7 +5420,7 @@ async function inviaPianificazioneBackend(idContatto, dataRicontatto, motivoRico
             : "Appuntamento completato / rimosso dal calendario",
           "success"
         );
-        await loadData();
+        await loadData({ postMutazioneServer: true });
         return;
       }
     } catch (err) {
@@ -5682,7 +5532,7 @@ async function salvaFormContatto(e) {
         if (json.ok) {
           showToast("Scheda cliente aggiornata con successo", "success");
           chiudiModalNuovo(true);
-          await loadData();
+          await loadData({ postMutazioneServer: true });
           return;
         }
         showToast(json.errore || "Errore durante l'aggiornamento", "error");
@@ -5706,7 +5556,7 @@ async function salvaFormContatto(e) {
         if (json.ok) {
           showToast("Nuovo cliente registrato con successo", "success");
           chiudiModalNuovo(true);
-          await loadData();
+          await loadData({ postMutazioneServer: true });
           return;
         }
         showToast(json.errore || "Errore durante il salvataggio", "error");
@@ -5877,7 +5727,7 @@ async function salvaEsitoChiamata(e) {
           "success"
         );
         chiudiModalEsito();
-        await loadData();
+        await loadData({ postMutazioneServer: true });
         return;
       }
     } catch (err) {
@@ -5984,7 +5834,7 @@ async function salvaNuovoOrdine(e) {
       if (json.ok) {
         showToast(`Ordine di ${formatEuro(importo)} registrato con successo`, "success");
         chiudiModalNuovoOrdine();
-        await loadData();
+        await loadData({ postMutazioneServer: true });
         return;
       }
     } catch (err) {
@@ -6039,6 +5889,10 @@ async function confermaEliminazioneCliente() {
   const idContatto = state.pendingDeleteId;
   if (!idContatto) return;
 
+  // Rimuovi subito anche dallo storage locale su disco per evitare qualsiasi risincronizzazione
+  state.contatti = state.contatti.filter(c => c.id !== idContatto);
+  salvaStorageLocale();
+
   if (state.isApiAvailable) {
     try {
       const res = await fetchConTimeout(`${API_BASE}/api/contatti/${idContatto}`, { method: "DELETE" });
@@ -6047,7 +5901,7 @@ async function confermaEliminazioneCliente() {
         showToast(`Cliente #${idContatto} eliminato definitivamente`, "success");
         chiudiModalElimina();
         chiudiDrawer();
-        await loadData();
+        await loadData({ postMutazioneServer: true });
         return;
       }
     } catch (err) {
@@ -6055,7 +5909,6 @@ async function confermaEliminazioneCliente() {
     }
   }
 
-  state.contatti = state.contatti.filter(c => c.id !== idContatto);
   ricalcolaTuttoInLocale();
   chiudiModalElimina();
   chiudiDrawer();
@@ -6074,8 +5927,10 @@ async function eseguiMergeContatti(idPrincipale, idSecondario) {
       });
       const json = await res.json();
       if (json.ok) {
+        state.contatti = state.contatti.filter(x => x.id !== idSecondario);
+        salvaStorageLocale();
         showToast(json.messaggio || "Schede unite con successo", "success");
-        await loadData();
+        await loadData({ postMutazioneServer: true });
         return;
       }
     } catch (err) {
@@ -6393,23 +6248,17 @@ async function importaFileDefault() {
         body: JSON.stringify({ percorso_file: "contatti_lead.json" })
       });
       const json = await res.json();
-      if (json.ok) {
+      if (json.ok && (json.inseriti > 0 || json.duplicati > 0)) {
         mostraFeedbackImport(json);
-        await loadData();
+        await loadData({ postMutazioneServer: true });
         return;
       }
     } catch (err) {
-      // Fallback locale
+      // Fallback selezione file locale
     }
   }
 
-  const leadDefault = [
-    { azienda: "Calzature Montenapoleone Srl", referente: "Dott. Matteo Villa", telefono: "02 33445566", citta: "Milano", priorita: 1, note: "Boutique storica quadrilatero" },
-    { azienda: "Boutique Piazza Navona", referente: "Chiara De Luca", telefono: "06 88776655", citta: "Roma", priorita: 1, note: "Interessata a linea cerimonia" },
-    { azienda: "Pelletteria & Scarpe Ponte Vecchio", referente: "Roberto Neri", telefono: "055 9988112", citta: "Firenze", priorita: 2, note: "Richiesto catalogo PDF" }
-  ];
-  const report = importaListaRecordsLocale(leadDefault, "JSON Integrato");
-  mostraFeedbackImport(report);
+  document.getElementById("fileInputJson").click();
 }
 
 async function eseguiImportUniversale() {
@@ -6429,7 +6278,7 @@ async function eseguiImportUniversale() {
       const json = await res.json();
       if (json.ok) {
         mostraFeedbackImport(json);
-        await loadData();
+        await loadData({ postMutazioneServer: true });
         return;
       }
     } catch (err) {
@@ -6498,28 +6347,6 @@ function esportaFileCsv() {
   a.click();
   a.remove();
   showToast("Esportazione CSV completata", "success");
-}
-
-async function ripristinaDemoRicca() {
-  if (state.isApiAvailable) {
-    try {
-      const res = await fetchConTimeout(`${API_BASE}/api/ripristina-demo`, { method: "POST" });
-      const json = await res.json();
-      if (json.ok) {
-        showToast("Dataset demo completo (ordini, ricontatti in calendario e duplicati) caricato", "success");
-        await loadData();
-        return;
-      }
-    } catch (err) {
-      // Fallback locale
-    }
-  }
-
-  localStorage.removeItem(STORAGE_KEY_CONTATTI);
-  state.contatti = generaDatasetDemoCompleto();
-  ricalcolaTuttoInLocale();
-  renderAll();
-  showToast("Dataset demo completo (12 clienti, ordini, calendario e duplicati) caricato", "success");
 }
 
 // ==============================================================================
@@ -6743,7 +6570,6 @@ function setupEventListeners() {
     }
   });
 
-  document.getElementById("btnImportaDefaultFile").addEventListener("click", importaFileDefault);
   document.getElementById("btnEseguiImportTesto").addEventListener("click", eseguiImportUniversale);
 
   document.getElementById("modalEliminaCloseBtn").addEventListener("click", chiudiModalElimina);

@@ -18,15 +18,6 @@ DATA_DIR="$HOME/Library/Application Support/NOGA_Gestionale"
 mkdir -p "$DATA_DIR"
 export NOGA_DB_PATH="$DATA_DIR/crm_ingrosso.db"
 
-# Copia il DB iniziale SOLO al primissimo avvio assoluto (se non esiste già)
-if [ ! -f "$NOGA_DB_PATH" ]; then
-    if [ -f "$PARENT_PROJECT_DIR/crm_ingrosso.db" ]; then
-        cp -f "$PARENT_PROJECT_DIR/crm_ingrosso.db" "$NOGA_DB_PATH" 2>/dev/null || true
-    elif [ -f "$BUNDLE_APP_DIR/crm_ingrosso.db" ]; then
-        cp -f "$BUNDLE_APP_DIR/crm_ingrosso.db" "$NOGA_DB_PATH" 2>/dev/null || true
-    fi
-fi
-
 # 2. Controllo auto-aggiornamento silenzioso in background (se presente repository Git)
 if [ -d "$PARENT_PROJECT_DIR/.git" ] && command -v git >/dev/null 2>&1; then
     (
@@ -79,14 +70,17 @@ if [ -n "$PYTHON_BIN" ] && [ -f "$WORK_DIR/app_server.py" ]; then
     fi
 fi
 
-# Compila l'eseguibile nativo Cocoa/WebKit (aggiornandolo se il sorgente .m è più recente)
-NATIVE_BIN="$DATA_DIR/NOGA_NativeWindow_v42"
-if [ -x "$MACOS_DIR/NOGA_NativeWindow" ]; then
+# Compila l'eseguibile nativo Cocoa/WebKit (ricompilandolo se il sorgente .m è più recente)
+NATIVE_BIN="$DATA_DIR/NOGA_NativeWindow_v50"
+if [ "$HAS_CLT" -eq 1 ] && [ -x "/usr/bin/clang" ]; then
+    if [ ! -x "$NATIVE_BIN" ] || [ "$MACOS_DIR/noga_native_macos.m" -nt "$NATIVE_BIN" ]; then
+        /usr/bin/clang -O2 -fobjc-arc -framework Cocoa -framework WebKit \
+            "$MACOS_DIR/noga_native_macos.m" -o "$NATIVE_BIN" 2>/dev/null || true
+        chmod +x "$NATIVE_BIN" 2>/dev/null || true
+        /usr/bin/codesign --force --sign - "$NATIVE_BIN" 2>/dev/null || true
+    fi
+elif [ -x "$MACOS_DIR/NOGA_NativeWindow" ]; then
     NATIVE_BIN="$MACOS_DIR/NOGA_NativeWindow"
-elif [ "$HAS_CLT" -eq 1 ] && [ -x "/usr/bin/clang" ] && [ ! -x "$NATIVE_BIN" ]; then
-    /usr/bin/clang -O2 -fobjc-arc -framework Cocoa -framework WebKit         "$MACOS_DIR/noga_native_macos.m" -o "$NATIVE_BIN" 2>/dev/null || true
-    chmod +x "$NATIVE_BIN" 2>/dev/null || true
-    /usr/bin/codesign --force --sign - "$NATIVE_BIN" 2>/dev/null || true
 fi
 
 # Avvia la finestra desktop nativa macOS (NSWindow + WKWebView)

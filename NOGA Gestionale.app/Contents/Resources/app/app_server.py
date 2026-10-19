@@ -423,13 +423,20 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": False, "errore": "Impossibile completare la fusione dei contatti."}, 404)
             return
 
-        # 8. Ripristino dati demo ricchi (con ordini multipli, regioni, appuntamenti e duplicati)
+        # 8. Sincronizzazione snapshot client (persistenza unificata post-standby / offline)
+        elif path == "/api/sincronizza-snapshot":
+            lista_contatti = payload.get("contatti", [])
+            res = main.sincronizza_snapshot_client(lista_contatti)
+            if not res.get("ok"):
+                self._send_json({"ok": False, "errore": res.get("errore", "Errore sincronizzazione")}, 400)
+            else:
+                self._send_json({"ok": True, **res})
+            return
+
+        # 9. Endpoint legacy mantenuto per compatibilità (disattivato demo)
         elif path == "/api/ripristina-demo":
             res = main.ripristina_dati_demo()
-            if "errore" in res:
-                self._send_json({"ok": False, "errore": res["errore"]}, 500)
-            else:
-                self._send_json({"ok": True, "messaggio": "Dati demo ricchi ripristinati con successo.", "dettaglio": res})
+            self._send_json({"ok": True, "messaggio": "Database pronto.", "dettaglio": res})
             return
 
         self._send_json({"ok": False, "errore": "Endpoint non trovato"}, 404)
@@ -521,8 +528,6 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
 
 def run():
     main.crea_tabella()
-    if len(main.ottieni_tutti_contatti()) == 0:
-        main.ripristina_dati_demo()
 
     server_address = (HOST, PORT)
     try:

@@ -735,7 +735,7 @@
         <div class="order-amount-highlight-box" id="boxImportoOrdineEsito">
           <div class="form-group">
             <label class="form-label" for="inputImportoOrdineChiamata">Importo Ordine Confermato (&euro;)</label>
-            <input type="number" step="0.01" min="0" id="inputImportoOrdineChiamata" class="form-control mono" placeholder="Es. 2450.00 (Lascia 0 se nessun nuovo ordine in questa chiamata)">
+            <input type="text" inputmode="decimal" id="inputImportoOrdineChiamata" class="form-control mono" placeholder="Es. 2.450,00 (Lascia 0 se nessun nuovo ordine in questa chiamata)">
             <span class="form-hint">Se maggiore di 0 &euro;, verrà creato un record nello storico ordini e sommato al totale del cliente.</span>
           </div>
         </div>
@@ -968,7 +968,7 @@
 
         <div class="form-group" id="groupOrdineIniziale">
           <label class="form-label" for="inputOrdineIniziale">Ordine Iniziale Confermato (&euro;) (Opzionale)</label>
-          <input type="number" step="0.01" min="0" id="inputOrdineIniziale" class="form-control mono" placeholder="0.00">
+          <input type="text" inputmode="decimal" id="inputOrdineIniziale" class="form-control mono" placeholder="0,00">
         </div>
 
         <div class="form-group">
@@ -1013,7 +1013,7 @@
 
         <div class="form-group">
           <label class="form-label" for="inputNuovoOrdineImporto">Importo Nuovo Ordine in Euro (&euro;) *</label>
-          <input type="number" step="0.01" min="0.01" id="inputNuovoOrdineImporto" class="form-control mono" placeholder="Es. 1850.00" required>
+          <input type="text" inputmode="decimal" id="inputNuovoOrdineImporto" class="form-control mono" placeholder="Es. 1.850,00" required>
         </div>
 
         <div class="form-group">
@@ -1024,7 +1024,7 @@
 
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" id="btnAnnullaNuovoOrdine">Annulla</button>
-          <button type="submit" class="btn btn-primary">Conferma e Registra Ordine (&euro;)</button>
+          <button type="submit" class="btn btn-primary" id="btnSalvaNuovoOrdine">Conferma e Registra Ordine (&euro;)</button>
         </div>
       </form>
     </div>

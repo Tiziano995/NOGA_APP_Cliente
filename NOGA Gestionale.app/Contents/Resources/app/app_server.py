@@ -70,7 +70,8 @@ class GestionaleApiHandler(SimpleHTTPRequestHandler):
             else:
                 righe = main.ottieni_tutti_contatti()
 
-            contatti = [main._riga_a_dict(r) for r in righe]
+            mappa_ordini = main.ottieni_mappa_ordini_tutti()
+            contatti = [main._riga_a_dict(r, ordini_storico=mappa_ordini.get(r["id"], [])) for r in righe]
 
             if priorita_filtro in ("1", "2", "3"):
                 p_int = int(priorita_filtro)
@@ -532,6 +533,7 @@ def run():
 
     server_address = (HOST, PORT)
     try:
+        ThreadingHTTPServer.allow_reuse_address = True
         httpd = ThreadingHTTPServer(server_address, GestionaleApiHandler)
         print(f"[NOGA ROMA macOS] Server Gestionale attivo su http://{HOST}:{PORT}/index.html")
         httpd.serve_forever()

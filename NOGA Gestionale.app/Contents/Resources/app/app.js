@@ -142,6 +142,7 @@ const state = {
   isApiAvailable: false,
   deletedTelefoni: new Set(JSON.parse(localStorage.getItem("noga_deleted_telefoni") || "[]"))
 };
+window.state = state;
 
 const API_BASE = window.location.origin.startsWith("http") ? "" : "http://127.0.0.1:8080";
 
@@ -190,7 +191,14 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   window.addEventListener("pagehide", () => salvaStorageLocale());
-  window.addEventListener("beforeunload", () => salvaStorageLocale());
+  window.addEventListener("beforeunload", (e) => {
+    salvaStorageLocale();
+    const openModals = document.querySelectorAll(".modal-backdrop.open");
+    if (state.isFormDirty || openModals.length > 0) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  });
 });
 
 // ==============================================================================
@@ -208,8 +216,11 @@ function escapeHtml(text) {
 }
 
 function formatEuro(valore) {
-  const num = Number(valore) || 0;
-  return "€ " + num.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const num = Math.abs(Number(valore) || 0);
+  const sign = (Number(valore) || 0) < 0 ? "-" : "";
+  const parts = num.toFixed(2).split(".");
+  const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${sign}€ ${intPart},${parts[1]}`;
 }
 
 function pad2(n) {
@@ -243,8 +254,11 @@ function calcolaStatoRicontattoClient(dataRicontatto) {
   const adessoStr = `${oggiStr} ${formatTimeISO(now)}`;
   const dataParte = dr.slice(0, 10);
 
-  if (dr < adessoStr) return "scaduto";
-  if (dataParte === oggiStr) return "oggi";
+  if (dataParte < oggiStr) return "scaduto";
+  if (dataParte === oggiStr) {
+    if (dr.length >= 16 && dr < adessoStr) return "scaduto";
+    return "oggi";
+  }
   return "futuro";
 }
 
@@ -351,7 +365,17 @@ function accodaNotaClient(notaEsistente, nuovaNota) {
   const nv = String(nuovaNota || "").trim();
   if (!nv) return es;
   if (!es) return nv;
-  return `${es} | ${nv}`;
+  const chunksEs = es.split(/\s*\|\s*/).map(c => c.trim()).filter(Boolean);
+  const chunksNv = nv.split(/\s*\|\s*/).map(c => c.trim()).filter(Boolean);
+  const visti = new Set(chunksEs);
+  const risultato = [...chunksEs];
+  for (const c of chunksNv) {
+    if (!visti.has(c)) {
+      risultato.push(c);
+      visti.add(c);
+    }
+  }
+  return risultato.join(" | ");
 }
 
 function parseImportoClient(valore) {
@@ -367,6 +391,11 @@ function parseImportoClient(valore) {
     }
   } else if (s.includes(",")) {
     s = s.replace(",", ".");
+  } else if (s.includes(".")) {
+    const parti = s.split(".");
+    if (parti.length > 2 || (parti.length === 2 && parti[1].length === 3 && /^\d{3}$/.test(parti[1]))) {
+      s = s.replace(/\./g, "");
+    }
   }
   const n = parseFloat(s);
   return isNaN(n) ? 0.0 : Number(n.toFixed(2));
@@ -385,7 +414,7 @@ function parsePrioritaClient(valore, def = 2) {
 // 2. MOTORE DATI IBRIDO (AUTONOMO NATIVO macOS + SINCRONIZZAZIONE SQLITE)
 // ==============================================================================
 
-async function fetchConTimeout(url, options = {}, timeoutMs = 1200) {
+async function fetchConTimeout(url, options = {}, timeoutMs = 5000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -409,7 +438,7 @@ async function loadData(options = {}) {
   const snapshotLocale = ottieniSnapshotLocaleSalvato();
 
   try {
-    const res = await fetchConTimeout(`${API_BASE}/api/contatti`);
+    const res = await fetchConTimeout(`${API_BASE}/api/contatti`, {}, 8000);
     if (!res.ok) throw new Error("Server non attivo");
     const json = await res.json();
     if (json.ok && Array.isArray(json.data)) {
@@ -425,8 +454,12 @@ async function loadData(options = {}) {
               contatti: snapshotLocale,
               eliminati: Array.from(state.deletedTelefoni || [])
             })
-          });
-          const resSync = await fetchConTimeout(`${API_BASE}/api/contatti`);
+          }, 15000);
+          if (state.deletedTelefoni) state.deletedTelefoni.clear();
+          try {
+            localStorage.removeItem("noga_deleted_telefoni");
+          } catch (_) {}
+          const resSync = await fetchConTimeout(`${API_BASE}/api/contatti`, {}, 8000);
           const jsonSync = await resSync.json();
           if (jsonSync.ok && Array.isArray(jsonSync.data)) {
             listaServer = filtraContattiNonDemo(jsonSync.data);
@@ -441,8 +474,14 @@ async function loadData(options = {}) {
         }
       }
 
-      // Filtra sempre contatti eliminati localmente per evitare resurrezioni
+      // Se un contatto è presente nel database o nello snapshot, rimuovilo dai telefoni eliminati
       if (state.deletedTelefoni && state.deletedTelefoni.size > 0) {
+        listaServer.forEach(c => {
+          const tel = normalizzaTelefonoClient(c.telefono);
+          if (tel && state.deletedTelefoni.has(tel)) {
+            state.deletedTelefoni.delete(tel);
+          }
+        });
         if (Array.isArray(snapshotLocale)) {
           snapshotLocale.forEach(c => {
             const tel = normalizzaTelefonoClient(c.telefono);
@@ -451,10 +490,12 @@ async function loadData(options = {}) {
             }
           });
         }
-        listaServer = listaServer.filter(c => !state.deletedTelefoni.has(normalizzaTelefonoClient(c.telefono)));
+        try {
+          localStorage.setItem("noga_deleted_telefoni", JSON.stringify([...state.deletedTelefoni]));
+        } catch (_) {}
       }
 
-      // Preserva lo storico ordini dettagliato dai contatti locali se presente
+      // Preserva e fondi lo storico ordini dettagliato dai contatti locali se presente
       if (snapshotLocale && Array.isArray(snapshotLocale) && snapshotLocale.length > 0) {
         const mappaOrdiniLocali = new Map();
         snapshotLocale.forEach(c => {
@@ -465,8 +506,19 @@ async function loadData(options = {}) {
         });
         listaServer = listaServer.map(c => {
           const tel = normalizzaTelefonoClient(c.telefono);
-          if ((!c.ordini_storico || c.ordini_storico.length === 0) && mappaOrdiniLocali.has(tel)) {
-            return { ...c, ordini_storico: mappaOrdiniLocali.get(tel) };
+          const locali = mappaOrdiniLocali.get(tel);
+          if (Array.isArray(locali) && locali.length > 0) {
+            const serverOrdini = Array.isArray(c.ordini_storico) ? c.ordini_storico : [];
+            const firme = new Set(serverOrdini.map(o => `${Number(o.importo || 0).toFixed(2)}_${String(o.data_ordine || '').trim()}_${String(o.note_ordine || '').trim()}`));
+            const uniti = [...serverOrdini];
+            locali.forEach(loc => {
+              const sig = `${Number(loc.importo || 0).toFixed(2)}_${String(loc.data_ordine || '').trim()}_${String(loc.note_ordine || '').trim()}`;
+              if (!firme.has(sig)) {
+                uniti.push(loc);
+                firme.add(sig);
+              }
+            });
+            return { ...c, ordini_storico: uniti };
           }
           return c;
         });
@@ -476,6 +528,14 @@ async function loadData(options = {}) {
       state.isApiAvailable = true;
       salvaStorageLocale();
       aggiornaBadgeStatoDb(true);
+      ricalcolaContatoriCalendarioLocali();
+      calcolaDuplicatiLocali();
+      calcolaStatisticheLocali();
+      renderAll();
+      if (state.selectedContact && document.getElementById("detailDrawer").classList.contains("open")) {
+        const aggiornato = state.contatti.find(c => c.id === state.selectedContact.id);
+        if (aggiornato) apriDrawer(aggiornato.id);
+      }
       await Promise.all([caricaStatistiche(), caricaCalendario(), caricaDuplicati()]);
     }
   } catch (err) {
@@ -486,16 +546,7 @@ async function loadData(options = {}) {
       state.contatti = salvati.map(arricchisciContattoClient);
     }
     ricalcolaTuttoInLocale();
-  }
-
-  renderAll();
-  if (state.selectedContact && document.getElementById("detailDrawer").classList.contains("open")) {
-    const aggiornato = state.contatti.find(c => c.id === state.selectedContact.id);
-    if (aggiornato) {
-      apriDrawer(aggiornato.id);
-    } else {
-      chiudiDrawer();
-    }
+    renderAll();
   }
 }
 
@@ -509,6 +560,8 @@ async function caricaStatistiche() {
     const json = await res.json();
     if (json.ok && json.data) {
       state.statistiche = json.data;
+      renderRibbonKpi();
+      renderCruscottoTab();
       return;
     }
   } catch (err) {
@@ -532,6 +585,8 @@ async function caricaCalendario() {
       } else {
         ricalcolaContatoriCalendarioLocali();
       }
+      renderCalendarioTab();
+      renderRibbonKpi();
       return;
     }
   } catch (err) {
@@ -550,6 +605,7 @@ async function caricaDuplicati() {
     const json = await res.json();
     if (json.ok && Array.isArray(json.data)) {
       state.duplicati = json.data;
+      renderDuplicatiTab();
       return;
     }
   } catch (err) {
@@ -569,7 +625,7 @@ function arricchisciContattoClient(c) {
         id: c.id * 100 + 1,
         contatto_id: c.id,
         importo: tot,
-        note_ordine: "Storico ordini B2B confermato",
+        note_ordine: "Ordine iniziale registrato in anagrafica",
         data_ordine: c.ultimo_ordine || c.data_aggiornamento || getNowTimestampStr()
       }
     ];
@@ -656,16 +712,62 @@ function ottieniSnapshotLocaleSalvato() {
     // Ignora JSON corrotto
   }
 
+  if (daDisco.length === 0 && daLocalStorage.length === 0) {
+    return [];
+  }
   if (daDisco.length > 0 && daLocalStorage.length === 0) {
     return daDisco;
   }
   if (daLocalStorage.length > 0 && daDisco.length === 0) {
     return daLocalStorage;
   }
-  if (daDisco.length > 0 && daLocalStorage.length > 0) {
-    return daDisco.length >= daLocalStorage.length ? daDisco : daLocalStorage;
-  }
-  return [];
+
+  // Se presenti entrambi gli snapshot, fondi per numero di telefono
+  // dando priorità alle schede con esiti registrati (chiamato="Sì") e note più ricche
+  const mappa = new Map();
+  daDisco.forEach(c => {
+    const tel = normalizzaTelefonoClient(c.telefono);
+    if (tel) mappa.set(tel, { ...c });
+  });
+
+  daLocalStorage.forEach(c => {
+    const tel = normalizzaTelefonoClient(c.telefono);
+    if (!tel) return;
+    if (!mappa.has(tel)) {
+      mappa.set(tel, { ...c });
+    } else {
+      const esistente = mappa.get(tel);
+      const fuso = { ...esistente };
+
+      if (c.chiamato === "Sì") fuso.chiamato = "Sì";
+      if (c.esito && c.esito !== "In attesa") fuso.esito = c.esito;
+
+      if (c.note && c.note !== esistente.note) {
+        fuso.note = accodaNotaClient(esistente.note, c.note);
+      }
+
+      if (c.data_ricontatto && !esistente.data_ricontatto) {
+        fuso.data_ricontatto = c.data_ricontatto;
+        fuso.motivo_ricontatto = c.motivo_ricontatto || fuso.motivo_ricontatto;
+      }
+
+      if (Number(c.totale_ordini || 0) > Number(esistente.totale_ordini || 0)) {
+        fuso.totale_ordini = c.totale_ordini;
+        fuso.numero_ordini = Math.max(c.numero_ordini || 0, esistente.numero_ordini || 0);
+      }
+      if (Array.isArray(c.ordini_storico) && c.ordini_storico.length > (esistente.ordini_storico?.length || 0)) {
+        fuso.ordini_storico = c.ordini_storico;
+      }
+
+      if (c.referente && !esistente.referente) fuso.referente = c.referente;
+      if (c.citta && !esistente.citta) fuso.citta = c.citta;
+      if (c.regione && !esistente.regione) fuso.regione = c.regione;
+
+      mappa.set(tel, fuso);
+    }
+  });
+
+  return Array.from(mappa.values());
 }
 
 function caricaDatiDefaultLocali() {
@@ -845,6 +947,12 @@ function getFilteredContacts(mode = "tutti") {
   const filtrati = state.contatti.filter(c => {
     if (mode === "da_chiamare") {
       if (c.chiamato !== "No" && c.esito !== "Da richiamare" && !c.data_ricontatto) return false;
+      // Se è stato pianificato un ricontatto futuro rispetto ad ora (es. tra 2 ore o nei prossimi giorni),
+      // il contatto non deve occupare la coda immediata di smaltimento, ma risiede in agenda finché non scade.
+      if (c.data_ricontatto) {
+        const adessoStr = getNowTimestampStr();
+        if (c.data_ricontatto > adessoStr) return false;
+      }
     } else if (mode === "ordini_confermati") {
       if (c.esito !== "Interessato (Ordine preso)" && !(Number(c.totale_ordini) > 0)) return false;
     }
@@ -956,16 +1064,21 @@ function creaCellaRicontatto(c) {
 }
 
 function creaBadgeEsito(esito) {
-  if (esito === "Interessato (Ordine preso)") {
+  const e = String(esito || "").trim();
+  const lower = e.toLowerCase();
+  if (lower.includes("ordine preso") || (lower.includes("interessato") && !lower.includes("non"))) {
     return '<span class="badge badge-success"><span class="badge-dot"></span> Ordine Preso</span>';
   }
-  if (esito === "Da richiamare") {
+  if (lower.includes("richiamare")) {
     return '<span class="badge badge-warning"><span class="badge-dot"></span> Da Richiamare</span>';
   }
-  if (esito === "Non interessato (Rifiutato)") {
+  if (lower.includes("non interessato") || lower.includes("rifiutat")) {
     return '<span class="badge badge-danger"><span class="badge-dot"></span> Rifiutato</span>';
   }
-  return '<span class="badge badge-neutral"><span class="badge-dot"></span> In Attesa</span>';
+  if (!e || lower === "in attesa") {
+    return '<span class="badge badge-neutral"><span class="badge-dot"></span> In Attesa</span>';
+  }
+  return `<span class="badge badge-neutral"><span class="badge-dot"></span> ${escapeHtml(e)}</span>`;
 }
 
 // --- TAB 1: CODA CHIAMATE ---
@@ -1130,6 +1243,10 @@ function renderCalendarMonthGrid() {
 
     cellsHtml.push(`
       <div class="cal-day-cell ${isOutside ? "outside-month" : ""} ${isToday ? "is-today" : ""} ${isSelected ? "is-selected" : ""}"
+           tabindex="0"
+           role="button"
+           aria-label="Giorno ${isoDate}"
+           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selezionaGiornoCalendario('${isoDate}')}"
            onclick="selezionaGiornoCalendario('${isoDate}')">
         <div class="cal-day-top">
           <span class="cal-day-num">${pad2(dayNum)}</span>
@@ -1315,7 +1432,7 @@ function renderOrdiniTab() {
   const maxEuro = Math.max(...chartList.map(c => Number(c.totale_ordini) || 0), 1);
   const maxNum = Math.max(...chartList.map(c => Number(c.numero_ordini) || 0), 1);
 
-  chartContainer.innerHTML = chartList.map(c => {
+  chartContainer.innerHTML = chartList.slice(0, 10).map(c => {
     const euro = Number(c.totale_ordini) || 0;
     const num = Number(c.numero_ordini) || 0;
     const pct = state.ordiniSortBy === "numero_ordini"
@@ -1701,16 +1818,26 @@ function apriModalPianifica(idContatto) {
   document.getElementById("pianificaSelectPriorita").value = String(c.priorita || 1);
   document.getElementById("pianificaInputNota").value = "";
 
-  document.getElementById("modalPianificaBackdrop").classList.add("open");
+  const modal = document.getElementById("modalPianificaBackdrop");
+  modal.dataset.initialData = document.getElementById("pianificaInputData").value;
+  modal.dataset.initialOra = document.getElementById("pianificaInputOra").value;
+  modal.dataset.initialMotivo = document.getElementById("pianificaSelectMotivo").value;
+  modal.dataset.initialPriorita = document.getElementById("pianificaSelectPriorita").value;
+  modal.classList.add("open");
 }
 
 function chiudiModalPianifica(forza = false) {
   const modal = document.getElementById("modalPianificaBackdrop");
-  if (!modal.classList.contains("open")) return;
+  if (!modal || !modal.classList.contains("open")) return;
   if (!forza) {
     const nota = (document.getElementById("pianificaInputNota").value || "").trim();
-    if (nota) {
-      if (!confirm("Hai inserito una nota per il ricontatto non salvata. Vuoi chiudere comunque?")) return;
+    const dataCambiata = document.getElementById("pianificaInputData").value !== (modal.dataset.initialData || "");
+    const oraCambiata = document.getElementById("pianificaInputOra").value !== (modal.dataset.initialOra || "");
+    const motivoCambiato = document.getElementById("pianificaSelectMotivo").value !== (modal.dataset.initialMotivo || "");
+    const prioritaCambiata = document.getElementById("pianificaSelectPriorita").value !== (modal.dataset.initialPriorita || "");
+
+    if (nota || dataCambiata || oraCambiata || motivoCambiato || prioritaCambiata) {
+      if (!confirm("Ci sono modifiche alla pianificazione non salvate. Vuoi chiudere comunque?")) return;
     }
   }
   modal.classList.remove("open");
@@ -1826,8 +1953,12 @@ async function inviaPianificazioneBackend(idContatto, dataRicontatto, motivoRico
         c.note,
         `[${adesso}] RICONTATTO PROGRAMMATO PER ${c.data_ricontatto} (${c.motivo_ricontatto})${suffisso}`
       );
-    } else if (notaExtra) {
-      c.note = accodaNotaClient(c.note, `[${adesso}] RICONTATTO COMPLETATO: ${notaExtra}`);
+    } else {
+      c.chiamato = "Sì";
+      c.esito = c.esito === "Interessato (Ordine preso)" ? c.esito : "Chiamato";
+      if (notaExtra) {
+        c.note = accodaNotaClient(c.note, `[${adesso}] RICONTATTO COMPLETATO: ${notaExtra}`);
+      }
     }
     if (priorita) c.priorita = priorita;
     c.data_aggiornamento = adesso;
@@ -1858,12 +1989,15 @@ function salvaBozzaNuovoContatto() {
       note: document.getElementById("inputNote").value,
       totale_ordini: document.getElementById("inputOrdineIniziale").value,
     };
-    sessionStorage.setItem("noga_draft_nuovo_contatto", JSON.stringify(data));
+    const str = JSON.stringify(data);
+    localStorage.setItem("noga_draft_nuovo_contatto", str);
+    sessionStorage.setItem("noga_draft_nuovo_contatto", str);
   } catch (e) {}
 }
 
 function cancellaBozzaNuovoContatto() {
   try {
+    localStorage.removeItem("noga_draft_nuovo_contatto");
     sessionStorage.removeItem("noga_draft_nuovo_contatto");
   } catch (e) {}
 }
@@ -1883,12 +2017,15 @@ function salvaBozzaEsito() {
       motivoRicontatto: document.getElementById("esitoSelectMotivoRicontatto").value,
       note: document.getElementById("textareaNuoveNote").value,
     };
-    sessionStorage.setItem("noga_draft_esito_" + idContatto, JSON.stringify(data));
+    const str = JSON.stringify(data);
+    localStorage.setItem("noga_draft_esito_" + idContatto, str);
+    sessionStorage.setItem("noga_draft_esito_" + idContatto, str);
   } catch (e) {}
 }
 
 function cancellaBozzaEsito(idContatto) {
   try {
+    localStorage.removeItem("noga_draft_esito_" + idContatto);
     sessionStorage.removeItem("noga_draft_esito_" + idContatto);
   } catch (e) {}
 }
@@ -1903,7 +2040,7 @@ function apriModalNuovo() {
   state.isFormDirty = false;
 
   try {
-    const bozzaStr = sessionStorage.getItem("noga_draft_nuovo_contatto");
+    const bozzaStr = localStorage.getItem("noga_draft_nuovo_contatto") || sessionStorage.getItem("noga_draft_nuovo_contatto");
     if (bozzaStr) {
       const b = JSON.parse(bozzaStr);
       if (b && (b.azienda || b.telefono || b.referente || b.note)) {
@@ -1921,7 +2058,12 @@ function apriModalNuovo() {
   } catch (err) {}
 
   document.getElementById("modalNuovoBackdrop").classList.add("open");
-  setTimeout(() => document.getElementById("inputAzienda").focus(), 40);
+  setTimeout(() => {
+    const active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA") && active.id !== "inputAzienda") return;
+    const el = document.getElementById("inputAzienda");
+    if (el) el.focus();
+  }, 40);
 }
 
 function apriModalModifica(idContatto) {
@@ -1942,7 +2084,12 @@ function apriModalModifica(idContatto) {
 
   state.isFormDirty = false;
   document.getElementById("modalNuovoBackdrop").classList.add("open");
-  setTimeout(() => document.getElementById("inputReferente").focus(), 40);
+  setTimeout(() => {
+    const active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA") && active.id !== "inputReferente") return;
+    const el = document.getElementById("inputReferente");
+    if (el) el.focus();
+  }, 40);
 }
 
 function chiudiModalNuovo(forza = false) {
@@ -1979,7 +2126,7 @@ async function salvaFormContatto(e) {
   const citta = document.getElementById("inputCitta").value.trim();
   const regione = document.getElementById("inputRegione").value.trim() || deduciRegioneClient(citta);
   const note = document.getElementById("inputNote").value.trim();
-  const totaleOrdiniInit = parseFloat(document.getElementById("inputOrdineIniziale").value) || 0.0;
+  const totaleOrdiniInit = parseImportoClient(document.getElementById("inputOrdineIniziale").value);
 
   if (!azienda || !telefono) {
     resetBtn();
@@ -2133,7 +2280,7 @@ function apriModalEsito(idContatto) {
 
   // Ripristina eventuale bozza non salvata
   try {
-    const bozzaStr = sessionStorage.getItem("noga_draft_esito_" + c.id);
+    const bozzaStr = localStorage.getItem("noga_draft_esito_" + c.id) || sessionStorage.getItem("noga_draft_esito_" + c.id);
     if (bozzaStr) {
       const b = JSON.parse(bozzaStr);
       if (b) {
@@ -2153,7 +2300,7 @@ function apriModalEsito(idContatto) {
 }
 
 function impostaEsitoRapidoNonRisponde() {
-  document.getElementById("selectChiamato").value = "No";
+  document.getElementById("selectChiamato").value = "Sì";
   document.getElementById("selectEsito").value = "Da richiamare";
   document.getElementById("esitoSelectMotivoRicontatto").value = "Non risponde - Riprovare";
   aggiornaVisibilitaBoxOrdineEsito();
@@ -2213,7 +2360,7 @@ async function salvaEsitoChiamata(e) {
   const esito = document.getElementById("selectEsito").value;
   const referente = document.getElementById("esitoInputReferente").value.trim();
   const priorita = parseInt(document.getElementById("esitoSelectPriorita").value, 10) || 2;
-  const importoOrdine = parseFloat(document.getElementById("inputImportoOrdineChiamata").value) || 0.0;
+  const importoOrdine = parseImportoClient(document.getElementById("inputImportoOrdineChiamata").value);
   const nuoveNote = document.getElementById("textareaNuoveNote").value.trim();
 
   const dataRic = document.getElementById("esitoInputDataRicontatto").value.trim();
@@ -2301,6 +2448,7 @@ async function salvaEsitoChiamata(e) {
       );
     }
 
+    salvaStorageLocale();
     ricalcolaTuttoInLocale();
     resetBtn();
     cancellaBozzaEsito(idContatto);
@@ -2322,6 +2470,12 @@ function apriModalNuovoOrdine(idContatto) {
   const c = state.contatti.find(x => x.id === idContatto);
   if (!c) return;
 
+  const submitBtn = document.getElementById("btnSalvaNuovoOrdine");
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = submitBtn.dataset.originalText || "Conferma e Salva Ordine";
+  }
+
   document.getElementById("ordineIdContatto").value = c.id;
   document.getElementById("modalOrdineAzienda").textContent = c.azienda;
   document.getElementById("modalOrdineAttuale").textContent =
@@ -2330,7 +2484,12 @@ function apriModalNuovoOrdine(idContatto) {
   document.getElementById("inputNuovoOrdineNote").value = "";
 
   document.getElementById("modalNuovoOrdineBackdrop").classList.add("open");
-  setTimeout(() => document.getElementById("inputNuovoOrdineImporto").focus(), 40);
+  setTimeout(() => {
+    const active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA") && active.id !== "inputNuovoOrdineImporto") return;
+    const el = document.getElementById("inputNuovoOrdineImporto");
+    if (el) el.focus();
+  }, 40);
 }
 
 function chiudiModalNuovoOrdine(forza = false) {
@@ -2363,7 +2522,7 @@ async function salvaNuovoOrdine(e) {
   };
 
   const idContatto = parseInt(document.getElementById("ordineIdContatto").value, 10);
-  const importo = parseFloat(document.getElementById("inputNuovoOrdineImporto").value);
+  const importo = parseImportoClient(document.getElementById("inputNuovoOrdineImporto").value);
   const noteOrdine = document.getElementById("inputNuovoOrdineNote").value.trim();
 
   if (!importo || importo <= 0) {
@@ -2449,9 +2608,6 @@ async function confermaEliminazioneCliente() {
   if (!idContatto) return;
 
   const daEliminare = state.contatti.find(c => c.id === idContatto);
-  if (daEliminare) {
-    tracciaTelefonoEliminato(daEliminare.telefono);
-  }
 
   // Rimuovi subito anche dallo storage locale su disco per evitare qualsiasi risincronizzazione
   state.contatti = state.contatti.filter(c => c.id !== idContatto);
@@ -2462,6 +2618,13 @@ async function confermaEliminazioneCliente() {
       const res = await fetchConTimeout(`${API_BASE}/api/contatti/${idContatto}`, { method: "DELETE" });
       const json = await res.json();
       if (json.ok) {
+        if (daEliminare && state.deletedTelefoni) {
+          const telNorm = normalizzaTelefonoClient(daEliminare.telefono);
+          state.deletedTelefoni.delete(telNorm);
+          try {
+            localStorage.setItem("noga_deleted_telefoni", JSON.stringify([...state.deletedTelefoni]));
+          } catch (_) {}
+        }
         showToast(`Cliente #${idContatto} eliminato definitivamente`, "success");
         chiudiModalElimina();
         chiudiDrawer();
@@ -2471,6 +2634,11 @@ async function confermaEliminazioneCliente() {
     } catch (err) {
       // Fallback autonomo locale
     }
+  }
+
+  // Traccia eliminazione locale solo se offline / mancata connessione al server
+  if (daEliminare) {
+    tracciaTelefonoEliminato(daEliminare.telefono);
   }
 
   ricalcolaTuttoInLocale();
@@ -2484,9 +2652,6 @@ async function confermaEliminazioneCliente() {
 async function eseguiMergeContatti(idPrincipale, idSecondario) {
   const p = state.contatti.find(x => x.id === idPrincipale);
   const sec = state.contatti.find(x => x.id === idSecondario);
-  if (sec && p && normalizzaTelefonoClient(sec.telefono) !== normalizzaTelefonoClient(p.telefono)) {
-    tracciaTelefonoEliminato(sec.telefono);
-  }
 
   if (state.isApiAvailable) {
     try {
@@ -2525,14 +2690,49 @@ async function eseguiMergeContatti(idPrincipale, idSecondario) {
   p.totale_ordini = Number(((Number(p.totale_ordini) || 0) + (Number(s.totale_ordini) || 0)).toFixed(2));
   p.numero_ordini = (Number(p.numero_ordini) || 0) + (Number(s.numero_ordini) || 0);
   p.ordini_storico = [...(p.ordini_storico || []), ...(s.ordini_storico || [])];
-  if (!p.data_ricontatto && s.data_ricontatto) {
+
+  const adessoStr = getNowTimestampStr();
+  let notaAggiuntivaFusione = "";
+  if (p.data_ricontatto && s.data_ricontatto) {
+    const pAttivo = (p.data_ricontatto >= adessoStr);
+    const sAttivo = (s.data_ricontatto >= adessoStr);
+    if (pAttivo && !sAttivo) {
+      notaAggiuntivaFusione = `[Fusione Ricontatto alternativo scheda #${s.id}]: ${s.data_ricontatto} - ${s.motivo_ricontatto || ""}`;
+    } else if (sAttivo && !pAttivo) {
+      p.data_ricontatto = s.data_ricontatto;
+      p.motivo_ricontatto = s.motivo_ricontatto;
+      notaAggiuntivaFusione = `[Fusione Ricontatto alternativo scheda #${p.id}]: ${p.data_ricontatto} - ${p.motivo_ricontatto || ""}`;
+    } else if (p.data_ricontatto <= s.data_ricontatto) {
+      notaAggiuntivaFusione = `[Fusione Ricontatto alternativo scheda #${s.id}]: ${s.data_ricontatto} - ${s.motivo_ricontatto || ""}`;
+    } else {
+      p.data_ricontatto = s.data_ricontatto;
+      p.motivo_ricontatto = s.motivo_ricontatto;
+      notaAggiuntivaFusione = `[Fusione Ricontatto alternativo scheda #${p.id}]: ${p.data_ricontatto} - ${p.motivo_ricontatto || ""}`;
+    }
+  } else if (!p.data_ricontatto && s.data_ricontatto) {
     p.data_ricontatto = s.data_ricontatto;
     p.motivo_ricontatto = s.motivo_ricontatto;
   }
-  if (s.note && !String(p.note || "").includes(s.note)) {
-    p.note = accodaNotaClient(p.note, s.note);
+
+  if (notaAggiuntivaFusione) {
+    s.note = accodaNotaClient(s.note, notaAggiuntivaFusione);
   }
-  p.note = accodaNotaClient(p.note, `[MERGE] Unito con scheda duplicata #${s.id} (${s.azienda})`);
+
+  const pezziEsistenti = new Set((p.note || "").split(" | ").map(x => x.trim()).filter(Boolean));
+  const pezziSecondari = (s.note || "").split(" | ").map(x => x.trim()).filter(Boolean);
+  const nuoviPezzi = [];
+  for (const pz of pezziSecondari) {
+    if (!pezziEsistenti.has(pz)) {
+      if (pz.startsWith(`[Da scheda #${s.id}]`)) {
+        nuoviPezzi.push(pz);
+      } else {
+        nuoviPezzi.push(`[Da scheda #${s.id}] ${pz}`);
+      }
+    }
+  }
+  if (nuoviPezzi.length > 0) {
+    p.note = accodaNotaClient(p.note, nuoviPezzi.join(" | "));
+  }
   p.data_aggiornamento = getNowTimestampStr();
 
   state.contatti = state.contatti.filter(x => x.id !== idSecondario);
@@ -2676,6 +2876,67 @@ function leggiFileImportato(file) {
   reader.readAsText(file);
 }
 
+function parseCSVUniversal(text, delimiter) {
+  const rows = [];
+  let currentRow = [];
+  let currentVal = "";
+  let insideQuotes = false;
+  
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+    
+    if (char === '"') {
+      if (insideQuotes && nextChar === '"') {
+        currentVal += '"';
+        i++;
+      } else {
+        insideQuotes = !insideQuotes;
+      }
+    } else if (char === delimiter && !insideQuotes) {
+      currentRow.push(currentVal.trim());
+      currentVal = "";
+    } else if ((char === "\r" || char === "\n") && !insideQuotes) {
+      if (char === "\r" && nextChar === "\n") {
+        i++;
+      }
+      currentRow.push(currentVal.trim());
+      if (currentRow.some(col => col.length > 0)) {
+        rows.push(currentRow);
+      }
+      currentRow = [];
+      currentVal = "";
+    } else {
+      currentVal += char;
+    }
+  }
+  
+  currentRow.push(currentVal.trim());
+  if (currentRow.some(col => col.length > 0)) {
+    rows.push(currentRow);
+  }
+  return rows;
+}
+
+function normalizzaDataRicontattoClient(valore) {
+  if (!valore) return "";
+  let s = String(valore).trim().replace("T", " ");
+  if (!s) return "";
+  const mIt = s.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (mIt) {
+    const d = mIt[1].padStart(2, "0");
+    const m = mIt[2].padStart(2, "0");
+    const y = mIt[3];
+    const hh = (mIt[4] || "09").padStart(2, "0");
+    const mm = mIt[5] || "00";
+    return `${y}-${m}-${d} ${hh}:${mm}`;
+  }
+  if (s.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return `${s} 09:00`;
+  }
+  return s.slice(0, 16);
+}
+
 function parseTestoImportUniversaleClient(testoRaw) {
   const testo = String(testoRaw || "").replace(/^\ufeff/, "").trim();
   if (!testo) return { records: [], formato: "vuoto" };
@@ -2688,28 +2949,27 @@ function parseTestoImportUniversaleClient(testoRaw) {
     return { records: parsed, formato: "JSON" };
   }
 
-  const linee = testo.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  if (linee.length === 0) return { records: [], formato: "vuoto" };
-
-  const prima = linee[0];
+  const primaRiga = testo.split(/\r?\n/)[0] || "";
   let delim = null;
   let formato = "TXT";
-  if (prima.includes("\t")) {
+  if (primaRiga.includes("\t")) {
     delim = "\t";
     formato = "TSV / Excel";
-  } else if (prima.includes(";")) {
+  } else if (primaRiga.includes(";")) {
     delim = ";";
     formato = "CSV (;)";
-  } else if (prima.includes("|")) {
+  } else if (primaRiga.includes("|")) {
     delim = "|";
     formato = "TXT (|)";
-  } else if (prima.includes(",")) {
+  } else if (primaRiga.includes(",")) {
     delim = ",";
     formato = "CSV (,)";
   }
 
   if (delim) {
-    const righe = linee.map(l => l.split(delim).map(x => x.replace(/^"|"$/g, "").trim()));
+    const righe = parseCSVUniversal(testo, delim);
+    if (righe.length === 0) return { records: [], formato: "vuoto" };
+
     const headerCandidate = righe[0].map(h => h.toLowerCase());
     const hasHeader = headerCandidate.some(h =>
       ["azienda", "ragione sociale", "negozio", "cliente", "nome", "telefono", "tel", "cellulare"].includes(h)
@@ -2721,14 +2981,22 @@ function parseTestoImportUniversaleClient(testoRaw) {
         const obj = {};
         headers.forEach((h, i) => {
           const val = row[i] || "";
-          if (["azienda", "ragione sociale", "negozio", "cliente", "nome"].includes(h)) obj.azienda = val;
-          else if (["telefono", "tel", "cellulare", "recapito", "numero"].includes(h)) obj.telefono = val;
-          else if (["referente", "titolare", "buyer", "contatto"].includes(h)) obj.referente = val;
-          else if (["citta", "città", "comune", "localita", "località"].includes(h)) obj.citta = val;
-          else if (["regione"].includes(h)) obj.regione = val;
-          else if (["priorita", "priorità", "urgenza"].includes(h)) obj.priorita = val;
-          else if (["importo", "ordine", "totale_ordini", "fatturato"].includes(h)) obj.totale_ordini = val;
-          else if (["note", "commenti", "appunti"].includes(h)) obj.note = val;
+          if (["azienda", "ragione sociale", "ragionesociale", "negozio", "cliente", "nome", "company"].includes(h)) obj.azienda = val;
+          else if (["telefono", "tel", "cellulare", "recapito", "numero", "phone", "mobile"].includes(h)) obj.telefono = val;
+          else if (["referente", "titolare", "buyer", "contatto", "responsabile"].includes(h)) obj.referente = val;
+          else if (["citta", "città", "comune", "localita", "località", "city"].includes(h)) obj.citta = val;
+          else if (["regione", "region"].includes(h)) obj.regione = val;
+          else if (["priorita", "priorità", "urgenza", "priority"].includes(h)) obj.priorita = val;
+          else if (["importo", "ordine", "totale_ordini", "totale_ordini_eur", "totaleordini", "totaleordinieur", "fatturato"].includes(h)) obj.totale_ordini = val;
+          else if (["numero_ordini", "numeroordini", "num_ordini", "numordini", "ordini"].includes(h)) obj.numero_ordini = val;
+          else if (["chiamato", "chiamata", "called", "stato_chiamata", "statochiamata"].includes(h)) obj.chiamato = val;
+          else if (["esito", "esito_chiamata", "esitochiamata", "esito_commerciale", "outcome", "status"].includes(h)) obj.esito = val;
+          else if (["data_ricontatto", "dataricontatto", "ricontatto", "appuntamento"].includes(h)) obj.data_ricontatto = normalizzaDataRicontattoClient(val);
+          else if (["motivo_ricontatto", "motivoricontatto", "motivo"].includes(h)) obj.motivo_ricontatto = val;
+          else if (["note", "commenti", "appunti", "annotazioni", "notes"].includes(h)) obj.note = val;
+          else if (["ordini_storico", "storico_ordini"].includes(h)) obj.ordini_storico = val;
+          else if (["data_aggiornamento", "ultimo_aggiornamento"].includes(h)) obj.data_aggiornamento = val;
+          else if (["ultimo_ordine", "ultimoordine"].includes(h)) obj.ultimo_ordine = val;
         });
         return obj;
       });
@@ -2760,6 +3028,7 @@ function parseTestoImportUniversaleClient(testoRaw) {
 
 function importaListaRecordsLocale(records, formato = "Multi-formato") {
   let inseriti = 0;
+  let aggiornati = 0;
   let duplicati = 0;
   let errori = 0;
   const adesso = getNowTimestampStr();
@@ -2776,8 +3045,11 @@ function importaListaRecordsLocale(records, formato = "Multi-formato") {
     const citta = String(r.citta || r["città"] || r.comune || "").trim();
     const regione = String(r.regione || "").trim() || deduciRegioneClient(citta);
     const priorita = parsePrioritaClient(r.priorita || r["priorità"], 2);
-    const totOrdini = parseImportoClient(r.totale_ordini || r.importo || r.ordine);
-    const note = String(r.note || r.commenti || "").trim();
+    const totOrdini = parseImportoClient(r.totale_ordini || r.importo || r.ordine || r.totale_ordini_eur);
+    const numOrdini = parseInt(r.numero_ordini || (totOrdini > 0 ? 1 : 0), 10) || 0;
+    const note = String(r.note || r.commenti || r.annotazioni || "").trim();
+    const dataRic = String(r.data_ricontatto || r.appuntamento || "").trim();
+    const motivoRic = String(r.motivo_ricontatto || r.motivo || "").trim();
 
     if (!azienda || !telefono) {
       errori++;
@@ -2788,9 +3060,74 @@ function importaListaRecordsLocale(records, formato = "Multi-formato") {
       errori++;
       return;
     }
+
+    let chiamato = "No";
+    if (r.chiamato !== undefined && r.chiamato !== null && String(r.chiamato).trim() !== "") {
+      const chStr = String(r.chiamato).trim().toLowerCase();
+      chiamato = (chStr === "sì" || chStr === "si" || chStr === "true" || chStr === "1" || chStr === "yes") ? "Sì" : "No";
+    } else if (totOrdini > 0 || (r.esito && String(r.esito).trim() !== "" && String(r.esito).trim() !== "In attesa")) {
+      chiamato = "Sì";
+    }
+
+    let esito = "In attesa";
+    if (r.esito && String(r.esito).trim() !== "") {
+      esito = String(r.esito).trim();
+    } else if (totOrdini > 0) {
+      esito = "Interessato (Ordine preso)";
+    } else if (dataRic) {
+      esito = "Da richiamare";
+    }
+
+    // Se il contatto esiste già, aggiorna/ripristina chiamate, esiti e note senza sovrascritture distruttive
     if (telefoniEsistenti.has(telNorm)) {
-      duplicati++;
-      return;
+      const cExist = state.contatti.find(x => normalizzaTelefonoClient(x.telefono) === telNorm);
+      if (cExist) {
+        let modificato = false;
+        if (chiamato === "Sì" && cExist.chiamato !== "Sì") {
+          cExist.chiamato = "Sì";
+          modificato = true;
+        }
+        if (esito && esito !== "In attesa" && (cExist.esito === "In attesa" || !cExist.esito)) {
+          cExist.esito = esito;
+          modificato = true;
+        }
+        if (note) {
+          const notePrima = cExist.note || "";
+          cExist.note = accodaNotaClient(cExist.note, note);
+          if (cExist.note !== notePrima) modificato = true;
+        }
+        if (dataRic && !cExist.data_ricontatto) {
+          cExist.data_ricontatto = dataRic;
+          cExist.motivo_ricontatto = motivoRic || cExist.motivo_ricontatto;
+          modificato = true;
+        }
+        if (totOrdini > (cExist.totale_ordini || 0)) {
+          cExist.totale_ordini = totOrdini;
+          cExist.numero_ordini = Math.max(cExist.numero_ordini || 0, numOrdini);
+          if (esito === "Interessato (Ordine preso)") {
+            cExist.esito = esito;
+          }
+          modificato = true;
+        }
+        if (Array.isArray(r.ordini_storico) && r.ordini_storico.length > (cExist.ordini_storico?.length || 0)) {
+          cExist.ordini_storico = r.ordini_storico;
+          modificato = true;
+        }
+        if (state.deletedTelefoni && state.deletedTelefoni.has(telNorm)) {
+          state.deletedTelefoni.delete(telNorm);
+        }
+        if (modificato) {
+          cExist.data_aggiornamento = adesso;
+          aggiornati++;
+        } else {
+          duplicati++;
+        }
+        return;
+      }
+    }
+
+    if (state.deletedTelefoni && state.deletedTelefoni.has(telNorm)) {
+      state.deletedTelefoni.delete(telNorm);
     }
 
     maxId++;
@@ -2803,25 +3140,34 @@ function importaListaRecordsLocale(records, formato = "Multi-formato") {
       citta,
       regione,
       priorita,
-      chiamato: totOrdini > 0 ? "Sì" : "No",
-      esito: totOrdini > 0 ? "Interessato (Ordine preso)" : "In attesa",
+      chiamato,
+      esito,
       totale_ordini: totOrdini,
-      numero_ordini: totOrdini > 0 ? 1 : 0,
-      data_ricontatto: "",
-      motivo_ricontatto: "",
+      numero_ordini: numOrdini,
+      data_ricontatto: dataRic,
+      motivo_ricontatto: motivoRic,
       note,
       data_aggiornamento: adesso,
       ultimo_ordine: totOrdini > 0 ? adesso : "",
-      ordini_storico: totOrdini > 0
-        ? [{ id: Date.now() + maxId, contatto_id: maxId, importo: totOrdini, note_ordine: "Ordine importato", data_ordine: adesso }]
-        : []
+      ordini_storico: Array.isArray(r.ordini_storico) && r.ordini_storico.length > 0
+        ? r.ordini_storico
+        : (totOrdini > 0
+            ? [{ id: Date.now() + maxId, contatto_id: maxId, importo: totOrdini, note_ordine: "Ordine importato", data_ordine: adesso }]
+            : [])
     }));
     inseriti++;
   });
 
+  if (state.deletedTelefoni) {
+    try {
+      localStorage.setItem("noga_deleted_telefoni", JSON.stringify([...state.deletedTelefoni]));
+    } catch (_) {}
+  }
+
+  salvaStorageLocale();
   ricalcolaTuttoInLocale();
   renderAll();
-  return { inseriti, duplicati, errori, formato_rilevato: formato };
+  return { inseriti, aggiornati, duplicati, errori, formato_rilevato: formato };
 }
 
 async function importaFileDefault() {
@@ -2864,6 +3210,16 @@ async function eseguiImportUniversale() {
       if (json.ok) {
         mostraFeedbackImport(json);
         document.getElementById("textareaJsonRaw").value = "";
+        try {
+          const { records } = parseTestoImportUniversaleClient(testo);
+          if (Array.isArray(records)) {
+            records.forEach(r => {
+              const tel = normalizzaTelefonoClient(r.telefono);
+              if (tel && state.deletedTelefoni) state.deletedTelefoni.delete(tel);
+            });
+            localStorage.setItem("noga_deleted_telefoni", JSON.stringify([...state.deletedTelefoni]));
+          }
+        } catch (_) {}
         await loadData({ postMutazioneServer: true });
         return;
       }
@@ -2890,13 +3246,19 @@ function mostraFeedbackImport(res) {
   const box = document.getElementById("importFeedbackBox");
   box.classList.remove("hidden");
   box.className = "import-feedback-box success";
+  const inseriti = res.inseriti || 0;
+  const aggiornati = res.aggiornati || 0;
+  const duplicati = res.duplicati || 0;
+  const errori = res.errori || 0;
+  const totAttivi = inseriti + aggiornati;
   box.innerHTML = `
     <strong>Report Importazione (${escapeHtml(res.formato_rilevato || "Multi-formato")}):</strong><br>
-    &bull; Nuovi Clienti Inseriti: <strong>${res.inseriti || 0}</strong><br>
-    &bull; Duplicati Telefonici Scartati: <strong>${res.duplicati || 0}</strong><br>
-    &bull; Righe Ignorate / Incomplete: <strong>${res.errori || 0}</strong>
+    &bull; Nuovi Clienti Inseriti: <strong>${inseriti}</strong><br>
+    ${aggiornati > 0 ? `&bull; Schede Aggiornate / Ripristinate: <strong>${aggiornati}</strong><br>` : ""}
+    &bull; Duplicati Ignorati: <strong>${duplicati}</strong><br>
+    &bull; Righe Ignorate / Incomplete: <strong>${errori}</strong>
   `;
-  showToast(`Importazione completata: +${res.inseriti || 0} contatti`, "success");
+  showToast(`Importazione completata: +${totAttivi} contatti`, "success");
 }
 
 function esportaFileJson() {
@@ -2917,12 +3279,14 @@ function esportaFileCsv() {
     showToast("Download CSV compatibile Excel avviato", "success");
     return;
   }
-  const headers = ["ID", "Priorita", "Azienda", "Referente", "Telefono", "Citta", "Regione", "Chiamato", "Esito", "Data_Ricontatto", "Motivo_Ricontatto", "Numero_Ordini", "Totale_Ordini_EUR"];
+  const headers = ["ID", "Priorita", "Azienda", "Referente", "Telefono", "Citta", "Regione", "Chiamato", "Esito", "Data_Ricontatto", "Motivo_Ricontatto", "Numero_Ordini", "Totale_Ordini_EUR", "Ultimo_Aggiornamento", "Note"];
+  const mappaPrio = { 1: "1 - Alta", 2: "2 - Normale", 3: "3 - Bassa" };
   const rows = state.contatti.map(c => [
-    c.id, c.priorita, `"${(c.azienda || "").replace(/"/g, '""')}"`, `"${(c.referente || "").replace(/"/g, '""')}"`,
-    `"${c.telefono || ""}"`, `"${c.citta || ""}"`, `"${c.regione || ""}"`, c.chiamato, `"${c.esito || ""}"`,
+    c.id, mappaPrio[c.priorita] || "2 - Normale", `"${(c.azienda || "").replace(/"/g, '""')}"`, `"${(c.referente || "").replace(/"/g, '""')}"`,
+    `"${c.telefono || ""}"`, `"${c.citta || ""}"`, `"${c.regione || ""}"`, c.chiamato || "No", `"${c.esito || "In attesa"}"`,
     `"${c.data_ricontatto || ""}"`, `"${(c.motivo_ricontatto || "").replace(/"/g, '""')}"`,
-    c.numero_ordini || 0, String(c.totale_ordini || 0).replace(".", ",")
+    c.numero_ordini || 0, String((c.totale_ordini || 0).toFixed ? c.totale_ordini.toFixed(2) : (c.totale_ordini || 0)).replace(".", ","),
+    `"${c.data_aggiornamento || ""}"`, `"${(c.note || "").replace(/"/g, '""')}"`
   ].join(";"));
   const csv = "\ufeff" + headers.join(";") + "\n" + rows.join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -2961,10 +3325,14 @@ function setupEventListeners() {
   const searchInput = document.getElementById("searchInput");
   const clearBtn = document.getElementById("clearSearchBtn");
 
+  let searchDebounceTimer = null;
   searchInput.addEventListener("input", (e) => {
     state.searchQuery = e.target.value.trim();
     clearBtn.classList.toggle("hidden", !state.searchQuery);
-    renderAll();
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+      renderAll();
+    }, 200);
   });
 
   clearBtn.addEventListener("click", () => {
@@ -3220,13 +3588,25 @@ function setupEventListeners() {
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      chiudiModalEsito();
-      chiudiModalPianifica();
-      chiudiModalNuovo(false);
-      chiudiModalNuovoOrdine();
-      chiudiModalImport();
-      chiudiModalElimina();
-      chiudiDrawer();
+      const modals = [
+        { id: "modalEsitoBackdrop", fn: () => chiudiModalEsito(false) },
+        { id: "modalPianificaBackdrop", fn: () => chiudiModalPianifica(false) },
+        { id: "modalNuovoBackdrop", fn: () => chiudiModalNuovo(false) },
+        { id: "modalNuovoOrdineBackdrop", fn: () => chiudiModalNuovoOrdine() },
+        { id: "modalImportBackdrop", fn: () => chiudiModalImport() },
+        { id: "modalEliminaBackdrop", fn: () => chiudiModalElimina() }
+      ];
+      for (const m of modals) {
+        const el = document.getElementById(m.id);
+        if (el && el.classList.contains("open")) {
+          m.fn();
+          return;
+        }
+      }
+      const drawer = document.getElementById("detailDrawer");
+      if (drawer && drawer.classList.contains("open")) {
+        chiudiDrawer();
+      }
     }
   });
 }

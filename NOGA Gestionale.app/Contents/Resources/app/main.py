@@ -239,8 +239,8 @@ def normalizza_azienda(nome):
 def calcola_stato_ricontatto(data_ricontatto, adesso_str=None):
     """
     Calcola lo stato temporale dinamico di un appuntamento:
-    - 'scaduto' se data_ricontatto < adesso
-    - 'oggi' se data_ricontatto cade nella data odierna (>= adesso)
+    - 'scaduto' se data_ricontatto < adesso (o giorno precedente se orario non specificato)
+    - 'oggi' se data_ricontatto cade nella data odierna
     - 'futuro' se data_ricontatto è nei giorni successivi
     - '' se non è impostato alcun ricontatto
     """
@@ -249,12 +249,12 @@ def calcola_stato_ricontatto(data_ricontatto, adesso_str=None):
         return ""
     now_s = adesso_str or datetime.now().strftime("%Y-%m-%d %H:%M")
     oggi_s = now_s[:10]
-    # Normalizza se mancava l'orario
-    if len(dt_clean) == 10:
-        dt_clean = dt_clean + " 09:00"
-    if dt_clean < now_s:
+    data_parte = dt_clean[:10]
+    if data_parte < oggi_s:
         return "scaduto"
-    if dt_clean[:10] == oggi_s:
+    if data_parte == oggi_s:
+        if len(dt_clean) >= 16 and dt_clean < now_s:
+            return "scaduto"
         return "oggi"
     return "futuro"
 
@@ -292,6 +292,10 @@ def _parse_importo(valore, default=0.0):
             s = s.replace(",", "")
     elif "," in s:
         s = s.replace(",", ".")
+    elif "." in s:
+        parti = s.split(".")
+        if len(parti) > 2 or (len(parti) == 2 and len(parti[1]) == 3 and parti[1].isdigit()):
+            s = s.replace(".", "")
     try:
         return round(float(s), 2)
     except ValueError:
@@ -299,12 +303,18 @@ def _parse_importo(valore, default=0.0):
 
 
 def _normalizza_data_ricontatto(valore):
-    """Normalizza una stringa data/ora nel formato ISO '%Y-%m-%d %H:%M'."""
+    """Normalizza una stringa data/ora nel formato ISO '%Y-%m-%d %H:%M' supportando formati ISO e italiani (DD/MM/YYYY)."""
     if not valore:
         return ""
     s = str(valore).strip().replace("T", " ")
     if not s:
         return ""
+    m_it = re.match(r"^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})(?:\s+(\d{1,2}):(\d{2}))?", s)
+    if m_it:
+        giorno, mese, anno, ore, minuti = m_it.groups()
+        ore = ore.zfill(2) if ore else "09"
+        minuti = minuti if minuti else "00"
+        return f"{anno}-{mese.zfill(2)}-{giorno.zfill(2)} {ore}:{minuti}"
     if len(s) == 10 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
         return f"{s} 09:00"
     return s[:16]
@@ -434,8 +444,8 @@ def crea_tabella():
         return False
 
 
-def _riga_a_dict(r, adesso_str=None):
-    """Converte un sqlite3.Row di contatti_ingrosso in dizionario completo con stato ricontatto."""
+def _riga_a_dict(r, adesso_str=None, ordini_storico=None):
+    """Converte un sqlite3.Row di contatti_ingrosso in dizionario completo con stato ricontatto e ordini."""
     if r is None:
         return None
     chiavi = r.keys()
@@ -445,7 +455,7 @@ def _riga_a_dict(r, adesso_str=None):
         regione = deduci_regione(citta)
     data_ric = r["data_ricontatto"] if "data_ricontatto" in chiavi and r["data_ricontatto"] else ""
     motivo_ric = r["motivo_ricontatto"] if "motivo_ricontatto" in chiavi and r["motivo_ricontatto"] else ""
-    return {
+    d = {
         "id": r["id"],
         "azienda": r["azienda"],
         "referente": r["referente"] if "referente" in chiavi and r["referente"] is not None else "",
@@ -464,6 +474,35 @@ def _riga_a_dict(r, adesso_str=None):
         "data_aggiornamento": r["data_aggiornamento"] if "data_aggiornamento" in chiavi and r["data_aggiornamento"] else "",
         "ultimo_ordine": r["ultimo_ordine"] if "ultimo_ordine" in chiavi and r["ultimo_ordine"] else (r["data_aggiornamento"] if "data_aggiornamento" in chiavi else ""),
     }
+    if ordini_storico is not None:
+        d["ordini_storico"] = ordini_storico
+    return d
+
+
+def ottieni_mappa_ordini_tutti():
+    """Restituisce un dizionario {contatto_id: [ordini_dettagliati]} ordinati per id DESC."""
+    try:
+        conn = connetti()
+        cur = conn.cursor()
+        cur.execute("SELECT id, contatto_id, importo, note_ordine, data_ordine FROM storico_ordini ORDER BY id DESC")
+        righe = cur.fetchall()
+        conn.close()
+        mappa = {}
+        for r in righe:
+            cid = r["contatto_id"]
+            if cid not in mappa:
+                mappa[cid] = []
+            mappa[cid].append({
+                "id": r["id"],
+                "contatto_id": cid,
+                "importo": round(float(r["importo"] or 0.0), 2),
+                "note_ordine": str(r["note_ordine"] or "").strip(),
+                "data_ordine": str(r["data_ordine"] or "").strip(),
+            })
+        return mappa
+    except sqlite3.Error as e:
+        print(f"Errore in ottieni_mappa_ordini_tutti: {e}")
+        return {}
 
 
 def telefono_esiste(telefono, escludi_id=None):
@@ -603,21 +642,19 @@ def ottieni_contatti_da_chiamare():
     try:
         conn = connetti()
         cur = conn.cursor()
-        oggi_fine = datetime.now().strftime("%Y-%m-%d 23:59")
+        adesso_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         cur.execute("""
             SELECT c.id, c.azienda, c.referente, c.telefono, c.citta, c.regione, c.note,
                    c.chiamato, c.esito, c.priorita, c.totale_ordini, c.numero_ordini,
                    c.data_ricontatto, c.motivo_ricontatto, c.data_aggiornamento,
                    (SELECT MAX(s.data_ordine) FROM storico_ordini s WHERE s.contatto_id = c.id) AS ultimo_ordine
             FROM contatti_ingrosso c
-            WHERE c.chiamato = 'No'
-               OR c.esito = 'Da richiamare'
-               OR (c.data_ricontatto IS NOT NULL AND TRIM(c.data_ricontatto) != '')
+            WHERE (c.chiamato = 'No' AND (c.data_ricontatto IS NULL OR TRIM(c.data_ricontatto) = '' OR c.data_ricontatto <= ?))
+               OR (c.esito = 'Da richiamare' AND (c.data_ricontatto IS NULL OR TRIM(c.data_ricontatto) = '' OR c.data_ricontatto <= ?))
             ORDER BY
                 CASE
                     WHEN c.data_ricontatto IS NOT NULL AND TRIM(c.data_ricontatto) != '' AND c.data_ricontatto <= ? THEN 0
-                    WHEN c.data_ricontatto IS NOT NULL AND TRIM(c.data_ricontatto) != '' THEN 1
-                    ELSE 2
+                    ELSE 1
                 END ASC,
                 CASE
                     WHEN c.data_ricontatto IS NOT NULL AND TRIM(c.data_ricontatto) != '' THEN c.data_ricontatto
@@ -625,7 +662,7 @@ def ottieni_contatti_da_chiamare():
                 END ASC,
                 c.priorita ASC,
                 c.id ASC
-        """, (oggi_fine,))
+        """, (adesso_str, adesso_str, adesso_str))
         righe = cur.fetchall()
         conn.close()
         return righe
@@ -704,6 +741,7 @@ def pianifica_ricontatto(contatto_id, data_ricontatto, motivo_ricontatto="", pri
         if data_ric_clean:
             if not motivo_clean:
                 motivo_clean = "Appuntamento concordato"
+            nuovo_chiamato = record["chiamato"]
             nuovo_esito = (
                 "Interessato (Ordine preso)"
                 if record["esito"] == "Interessato (Ordine preso)"
@@ -714,7 +752,8 @@ def pianifica_ricontatto(contatto_id, data_ricontatto, motivo_ricontatto="", pri
             note_aggiornate = _accoda_nota_sql(record["note"], traccia)
         else:
             motivo_clean = ""
-            nuovo_esito = record["esito"] or "In attesa"
+            nuovo_chiamato = "Sì"
+            nuovo_esito = "Chiamato" if record["esito"] != "Interessato (Ordine preso)" else record["esito"]
             if nota_extra_clean:
                 traccia = f"[{data_ora}] RICONTATTO COMPLETATO: {nota_extra_clean}"
                 note_aggiornate = _accoda_nota_sql(record["note"], traccia)
@@ -726,6 +765,7 @@ def pianifica_ricontatto(contatto_id, data_ricontatto, motivo_ricontatto="", pri
             UPDATE contatti_ingrosso
             SET data_ricontatto = ?,
                 motivo_ricontatto = ?,
+                chiamato = ?,
                 esito = ?,
                 priorita = ?,
                 note = ?,
@@ -735,6 +775,7 @@ def pianifica_ricontatto(contatto_id, data_ricontatto, motivo_ricontatto="", pri
             (
                 data_ric_clean,
                 motivo_clean,
+                nuovo_chiamato,
                 nuovo_esito,
                 nuova_priorita,
                 note_aggiornate,
@@ -828,14 +869,22 @@ def id_esiste(id_contatto):
 
 
 def _accoda_nota_sql(nota_esistente, nuova_nota):
-    """Unisce in modo pulito una nuova nota a quelle esistenti usando il separatore ' | '."""
+    """Unisce in modo pulito una nuova nota a quelle esistenti usando il separatore ' | ' evitando duplicazioni esatte e loop di accodamento."""
     esistente = str(nota_esistente or "").strip()
     nuova = str(nuova_nota or "").strip()
     if not nuova:
         return esistente
     if not esistente:
         return nuova
-    return f"{esistente} | {nuova}"
+    chunks_es = [c.strip() for c in esistente.split("|") if c.strip()]
+    chunks_nv = [c.strip() for c in nuova.split("|") if c.strip()]
+    visti = set(chunks_es)
+    risultato = list(chunks_es)
+    for c in chunks_nv:
+        if c not in visti:
+            risultato.append(c)
+            visti.add(c)
+    return " | ".join(risultato)
 
 
 def _ricalcola_ordini_contatto(cur, contatto_id):
@@ -1229,6 +1278,8 @@ ALIAS_COLONNE_IMPORT = {
     "urgenza": "priorita",
     "totaleordini": "totale_ordini",
     "totale_ordini": "totale_ordini",
+    "totale_ordini_eur": "totale_ordini",
+    "totaleordinieur": "totale_ordini",
     "importo": "totale_ordini",
     "ordine": "totale_ordini",
     "fatturato": "totale_ordini",
@@ -1238,6 +1289,30 @@ ALIAS_COLONNE_IMPORT = {
     "appuntamento": "data_ricontatto",
     "motivo_ricontatto": "motivo_ricontatto",
     "motivoricontatto": "motivo_ricontatto",
+    "chiamato": "chiamato",
+    "chiamata": "chiamato",
+    "called": "chiamato",
+    "stato_chiamata": "chiamato",
+    "statochiamata": "chiamato",
+    "esito": "esito",
+    "esito_chiamata": "esito",
+    "esitochiamata": "esito",
+    "esito_commerciale": "esito",
+    "outcome": "esito",
+    "status": "esito",
+    "numero_ordini": "numero_ordini",
+    "numeroordini": "numero_ordini",
+    "num_ordini": "numero_ordini",
+    "numordini": "numero_ordini",
+    "ordini": "numero_ordini",
+    "ordini_storico": "ordini_storico",
+    "storico_ordini": "ordini_storico",
+    "data_aggiornamento": "data_aggiornamento",
+    "dataaggiornamento": "data_aggiornamento",
+    "ultimo_aggiornamento": "data_aggiornamento",
+    "ultimoaggiornamento": "data_aggiornamento",
+    "ultimo_ordine": "ultimo_ordine",
+    "ultimoordine": "ultimo_ordine",
 }
 
 
@@ -1256,7 +1331,7 @@ def _normalizza_chiave_colonna(col):
 
 
 def _mappa_dizionario_grezzo(d):
-    """Mappa un dizionario con chiavi arbitrarie nello schema standard contatti."""
+    """Mappa un dizionario con chiavi arbitrarie nello schema standard contatti preservando esiti, chiamate e ordini."""
     risultato = {
         "azienda": "",
         "telefono": "",
@@ -1266,8 +1341,14 @@ def _mappa_dizionario_grezzo(d):
         "note": "",
         "priorita": 2,
         "totale_ordini": 0.0,
+        "numero_ordini": 0,
+        "chiamato": "",
+        "esito": "",
         "data_ricontatto": "",
         "motivo_ricontatto": "",
+        "ordini_storico": [],
+        "data_aggiornamento": "",
+        "ultimo_ordine": "",
     }
     for k, v in d.items():
         chiave_std = _normalizza_chiave_colonna(k)
@@ -1420,9 +1501,10 @@ def importa_contatti_universale(contenuto_testo, nome_file="", ignora_duplicati_
 
 
 def _inserisci_lista_contatti_mappati(records, ignora_duplicati_telefono=True, formato_rilevato="JSON"):
-    """Inserisce nel DB una lista di dizionari contatti con verifica anti-duplicato normalizzata."""
+    """Inserisce nel DB una lista di dizionari contatti con verifica anti-duplicato normalizzata e ripristino chiamate/note."""
     try:
         inseriti = 0
+        aggiornati = 0
         duplicati = 0
         errori = 0
         data_ora = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -1430,10 +1512,18 @@ def _inserisci_lista_contatti_mappati(records, ignora_duplicati_telefono=True, f
         conn = connetti()
         cur = conn.cursor()
 
-        cur.execute("SELECT telefono FROM contatti_ingrosso")
-        telefoni_esistenti = {
-            normalizza_telefono(r["telefono"])
-            for r in cur.fetchall()
+        cur.execute(
+            """
+            SELECT id, azienda, referente, telefono, citta, regione, note,
+                   chiamato, esito, priorita, totale_ordini, numero_ordini,
+                   data_ricontatto, motivo_ricontatto, data_aggiornamento
+            FROM contatti_ingrosso
+            """
+        )
+        esistenti_rows = cur.fetchall()
+        esistenti_mappa = {
+            normalizza_telefono(r["telefono"]): dict(r)
+            for r in esistenti_rows
             if normalizza_telefono(r["telefono"])
         }
 
@@ -1448,7 +1538,7 @@ def _inserisci_lista_contatti_mappati(records, ignora_duplicati_telefono=True, f
             priorita = _parse_priorita(c.get("priorita", 2), default=2)
             totale_ordini = _parse_importo(c.get("totale_ordini", 0.0), default=0.0)
             data_ric = _normalizza_data_ricontatto(c.get("data_ricontatto", ""))
-            motivo_ric = str(c.get("motivo_ricontatto", "")).strip()
+            motivo_ric = str(c.get("motivo_ricontatto", "")).strip() if data_ric else ""
 
             if not azienda or not telefono:
                 errori += 1
@@ -1459,21 +1549,125 @@ def _inserisci_lista_contatti_mappati(records, ignora_duplicati_telefono=True, f
                 errori += 1
                 continue
 
-            if ignora_duplicati_telefono and tel_norm in telefoni_esistenti:
-                duplicati += 1
-                continue
+            chiamato_val = c.get("chiamato")
+            chiamato_raw = str(chiamato_val or "").strip().lower()
+            if chiamato_raw in ("sì", "si", "yes", "true", "1"):
+                chiamato = "Sì"
+            elif chiamato_raw in ("no", "false", "0"):
+                chiamato = "No"
+            else:
+                chiamato = "Sì" if (totale_ordini > 0 or (c.get("esito") and str(c.get("esito")).strip() not in ("", "In attesa"))) else "No"
 
-            if not regione and citta:
-                regione = deduci_regione(citta)
-
-            chiamato = "Sì" if totale_ordini > 0 else "No"
-            if totale_ordini > 0:
+            esito_raw = str(c.get("esito") or "").strip()
+            if esito_raw:
+                esito = esito_raw
+            elif totale_ordini > 0:
                 esito = "Interessato (Ordine preso)"
             elif data_ric:
                 esito = "Da richiamare"
             else:
                 esito = "In attesa"
-            numero_ordini = 1 if totale_ordini > 0 else 0
+
+            num_ordini_raw = c.get("numero_ordini")
+            try:
+                numero_ordini = int(num_ordini_raw) if num_ordini_raw is not None and str(num_ordini_raw).strip() != "" else (1 if totale_ordini > 0 else 0)
+            except (ValueError, TypeError):
+                numero_ordini = 1 if totale_ordini > 0 else 0
+
+            data_agg = str(c.get("data_aggiornamento") or "").strip() or data_ora
+            ordini_storico = c.get("ordini_storico", [])
+
+            if ignora_duplicati_telefono and tel_norm in esistenti_mappa:
+                rec = esistenti_mappa[tel_norm]
+                cid = rec["id"]
+                modificato = False
+
+                nuovo_chiamato = rec["chiamato"]
+                if chiamato == "Sì" and rec["chiamato"] != "Sì":
+                    nuovo_chiamato = "Sì"
+                    modificato = True
+
+                nuovo_esito = rec["esito"]
+                if esito and esito != "In attesa" and (not rec["esito"] or rec["esito"] == "In attesa"):
+                    nuovo_esito = esito
+                    modificato = True
+
+                nuove_note = _accoda_nota_sql(rec["note"], note)
+                if nuove_note != rec["note"]:
+                    modificato = True
+
+                nuova_data_ric = rec["data_ricontatto"]
+                nuovo_motivo_ric = rec["motivo_ricontatto"]
+                if data_ric and not rec["data_ricontatto"]:
+                    nuova_data_ric = data_ric
+                    nuovo_motivo_ric = motivo_ric or rec["motivo_ricontatto"]
+                    modificato = True
+
+                nuovo_tot_ordini = rec["totale_ordini"]
+                nuovo_num_ordini = rec["numero_ordini"]
+                if totale_ordini > (rec["totale_ordini"] or 0):
+                    nuovo_tot_ordini = totale_ordini
+                    nuovo_num_ordini = max(rec["numero_ordini"] or 0, numero_ordini or 1)
+                    if esito == "Interessato (Ordine preso)":
+                        nuovo_esito = esito
+                    modificato = True
+
+                if isinstance(ordini_storico, list) and len(ordini_storico) > 0:
+                    cur.execute("SELECT id, importo, note_ordine, data_ordine FROM storico_ordini WHERE contatto_id = ?", (cid,))
+                    ordini_db = cur.fetchall()
+                    firme_esistenti = {
+                        (round(float(o["importo"] or 0.0), 2), str(o["data_ordine"] or "").strip(), str(o["note_ordine"] or "").strip())
+                        for o in ordini_db
+                    }
+                    for o in ordini_storico:
+                        if isinstance(o, dict):
+                            imp = _parse_importo(o.get("importo", 0.0), default=0.0)
+                            if imp > 0:
+                                d_ord = str(o.get("data_ordine", "")).strip() or data_ora
+                                n_ord = str(o.get("note_ordine", "")).strip()
+                                firma = (round(imp, 2), d_ord, n_ord)
+                                is_synthetic = n_ord in (
+                                    "Storico ordini B2B confermato",
+                                    "Ordine pregresso",
+                                    "Ordine iniziale registrato in anagrafica"
+                                )
+                                has_matching_amount = any(round(float(ex["importo"] or 0.0), 2) == round(imp, 2) for ex in ordini_db)
+                                if is_synthetic and has_matching_amount:
+                                    continue
+                                if firma not in firme_esistenti:
+                                    cur.execute(
+                                        "INSERT INTO storico_ordini (contatto_id, importo, note_ordine, data_ordine) VALUES (?, ?, ?, ?)",
+                                        (cid, imp, n_ord, d_ord),
+                                    )
+                                    firme_esistenti.add(firma)
+                                    modificato = True
+                    if modificato:
+                        _ricalcola_ordini_contatto(cur, cid)
+
+                if modificato:
+                    cur.execute(
+                        """
+                        UPDATE contatti_ingrosso
+                        SET chiamato = ?, esito = ?, note = ?, data_ricontatto = ?, motivo_ricontatto = ?,
+                            totale_ordini = ?, numero_ordini = ?, data_aggiornamento = ?
+                        WHERE id = ?
+                        """,
+                        (nuovo_chiamato, nuovo_esito, nuove_note, nuova_data_ric, nuovo_motivo_ric, nuovo_tot_ordini, nuovo_num_ordini, data_ora, cid),
+                    )
+                    rec["chiamato"] = nuovo_chiamato
+                    rec["esito"] = nuovo_esito
+                    rec["note"] = nuove_note
+                    rec["data_ricontatto"] = nuova_data_ric
+                    rec["motivo_ricontatto"] = nuovo_motivo_ric
+                    rec["totale_ordini"] = nuovo_tot_ordini
+                    rec["numero_ordini"] = nuovo_num_ordini
+                    aggiornati += 1
+                else:
+                    duplicati += 1
+                continue
+
+            if not regione and citta:
+                regione = deduci_regione(citta)
 
             cur.execute(
                 """
@@ -1498,11 +1692,29 @@ def _inserisci_lista_contatti_mappati(records, ignora_duplicati_telefono=True, f
                     numero_ordini,
                     data_ric,
                     motivo_ric,
-                    data_ora,
+                    data_agg,
                 ),
             )
             nuovo_id = cur.lastrowid
-            if totale_ordini > 0 and nuovo_id:
+            if isinstance(ordini_storico, list) and len(ordini_storico) > 0 and nuovo_id:
+                for o in ordini_storico:
+                    if isinstance(o, dict):
+                        imp = _parse_importo(o.get("importo", 0.0), default=0.0)
+                        if imp > 0:
+                            cur.execute(
+                                """
+                                INSERT INTO storico_ordini (contatto_id, importo, note_ordine, data_ordine)
+                                VALUES (?, ?, ?, ?)
+                                """,
+                                (
+                                    nuovo_id,
+                                    imp,
+                                    str(o.get("note_ordine", "")).strip(),
+                                    str(o.get("data_ordine", "")).strip() or data_ora,
+                                ),
+                            )
+                _ricalcola_ordini_contatto(cur, nuovo_id)
+            elif totale_ordini > 0 and nuovo_id:
                 cur.execute(
                     """
                     INSERT INTO storico_ordini (contatto_id, importo, note_ordine, data_ordine)
@@ -1511,7 +1723,23 @@ def _inserisci_lista_contatti_mappati(records, ignora_duplicati_telefono=True, f
                     (nuovo_id, totale_ordini, "Ordine importato", data_ora),
                 )
 
-            telefoni_esistenti.add(tel_norm)
+            esistenti_mappa[tel_norm] = {
+                "id": nuovo_id,
+                "azienda": azienda,
+                "referente": referente,
+                "telefono": telefono,
+                "citta": citta,
+                "regione": regione,
+                "note": note,
+                "chiamato": chiamato,
+                "esito": esito,
+                "priorita": priorita,
+                "totale_ordini": totale_ordini,
+                "numero_ordini": numero_ordini,
+                "data_ricontatto": data_ric,
+                "motivo_ricontatto": motivo_ric,
+                "data_aggiornamento": data_agg,
+            }
             inseriti += 1
 
         conn.commit()
@@ -1519,6 +1747,7 @@ def _inserisci_lista_contatti_mappati(records, ignora_duplicati_telefono=True, f
 
         return {
             "inseriti": inseriti,
+            "aggiornati": aggiornati,
             "duplicati": duplicati,
             "errori": errori,
             "totale_file": len(records),
@@ -1920,13 +2149,55 @@ def unisci_contatti(id_principale, id_secondario):
         if not regione and citta:
             regione = deduci_regione(citta)
 
-        data_ric = (principale["data_ricontatto"] or "").strip() or (secondario["data_ricontatto"] or "").strip()
-        motivo_ric = (principale["motivo_ricontatto"] or "").strip() or (secondario["motivo_ricontatto"] or "").strip()
+        data_ric_p = (principale["data_ricontatto"] or "").strip()
+        data_ric_s = (secondario["data_ricontatto"] or "").strip()
+        motivo_ric_p = (principale["motivo_ricontatto"] or "").strip()
+        motivo_ric_s = (secondario["motivo_ricontatto"] or "").strip()
+
+        nota_aggiuntiva_fusione = ""
+        if data_ric_p and data_ric_s:
+            p_attivo = (data_ric_p >= data_ora)
+            s_attivo = (data_ric_s >= data_ora)
+            if p_attivo and not s_attivo:
+                data_ric = data_ric_p
+                motivo_ric = motivo_ric_p
+                nota_aggiuntiva_fusione = f"[Fusione Ricontatto alternativo scheda #{id_secondario}]: {data_ric_s} - {motivo_ric_s}"
+            elif s_attivo and not p_attivo:
+                data_ric = data_ric_s
+                motivo_ric = motivo_ric_s
+                nota_aggiuntiva_fusione = f"[Fusione Ricontatto alternativo scheda #{id_principale}]: {data_ric_p} - {motivo_ric_p}"
+            elif data_ric_p <= data_ric_s:
+                data_ric = data_ric_p
+                motivo_ric = motivo_ric_p
+                nota_aggiuntiva_fusione = f"[Fusione Ricontatto alternativo scheda #{id_secondario}]: {data_ric_s} - {motivo_ric_s}"
+            else:
+                data_ric = data_ric_s
+                motivo_ric = motivo_ric_s
+                nota_aggiuntiva_fusione = f"[Fusione Ricontatto alternativo scheda #{id_principale}]: {data_ric_p} - {motivo_ric_p}"
+        elif data_ric_p:
+            data_ric = data_ric_p
+            motivo_ric = motivo_ric_p
+        else:
+            data_ric = data_ric_s
+            motivo_ric = motivo_ric_s
 
         nota_p = (principale["note"] or "").strip()
         nota_s = (secondario["note"] or "").strip()
-        if nota_s and nota_s not in nota_p:
-            note_unite = _accoda_nota_sql(nota_p, f"[Da scheda #{id_secondario}] {nota_s}")
+        if nota_aggiuntiva_fusione:
+            nota_s = _accoda_nota_sql(nota_s, nota_aggiuntiva_fusione)
+
+        pezzi_esistenti = set(p.strip() for p in nota_p.split(" | ") if p.strip())
+        pezzi_secondari = [p.strip() for p in nota_s.split(" | ") if p.strip()]
+        nuovi_pezzi_secondari = []
+        for p in pezzi_secondari:
+            if p not in pezzi_esistenti:
+                if p.startswith(f"[Da scheda #{id_secondario}]"):
+                    nuovi_pezzi_secondari.append(p)
+                else:
+                    nuovi_pezzi_secondari.append(f"[Da scheda #{id_secondario}] {p}")
+
+        if nuovi_pezzi_secondari:
+            note_unite = _accoda_nota_sql(nota_p, " | ".join(nuovi_pezzi_secondari))
         else:
             note_unite = nota_p
 
@@ -2005,7 +2276,7 @@ def unisci_contatti(id_principale, id_secondario):
 def sincronizza_snapshot_client(lista_contatti, telefoni_eliminati=None):
     """
     Sincronizza lo stato dei contatti salvati dal client nel database SQLite,
-    includendo storico ordini, note e appuntamenti a calendario, senza mai perdere dati.
+    senza MAI degradare 'chiamato' da 'Sì' a 'No' e senza MAI azzerare note o esiti qualificati.
     """
     if not isinstance(lista_contatti, list):
         return {"ok": False, "errore": "Lista contatti non valida"}
@@ -2014,25 +2285,52 @@ def sincronizza_snapshot_client(lista_contatti, telefoni_eliminati=None):
         conn = connetti()
         cur = conn.cursor()
 
-        # Purga contatti eliminati dal client per garantire sincronizzazione bidirezionale
+        # Telefoni presenti nello snapshot corrente (non devono essere eliminati)
+        telefoni_nello_snapshot = {
+            normalizza_telefono(str(item.get("telefono", "")))
+            for item in lista_contatti
+            if isinstance(item, dict) and normalizza_telefono(str(item.get("telefono", "")))
+        }
+
+        # Purga contatti eliminati dal client SOLO se non sono presenti nello snapshot corrente
         if telefoni_eliminati and isinstance(telefoni_eliminati, (list, set)):
             cur.execute("SELECT id, telefono FROM contatti_ingrosso")
             tutti_attuali = cur.fetchall()
             for r in tutti_attuali:
                 r_tel_norm = normalizza_telefono(r["telefono"])
+                if not r_tel_norm or r_tel_norm in telefoni_nello_snapshot:
+                    continue
                 for tel_el in telefoni_eliminati:
-                    if r_tel_norm and r_tel_norm == normalizza_telefono(str(tel_el)):
+                    if r_tel_norm == normalizza_telefono(str(tel_el)):
                         cid = r["id"]
                         cur.execute("DELETE FROM storico_ordini WHERE contatto_id = ?", (cid,))
                         cur.execute("DELETE FROM contatti_ingrosso WHERE id = ?", (cid,))
                         break
 
-        cur.execute("SELECT id, telefono FROM contatti_ingrosso")
+        cur.execute(
+            """
+            SELECT id, azienda, referente, telefono, citta, regione, note,
+                   chiamato, esito, priorita, totale_ordini, numero_ordini,
+                   data_ricontatto, motivo_ricontatto, data_aggiornamento
+            FROM contatti_ingrosso
+            """
+        )
+        tutti_esistenti = [dict(r) for r in cur.fetchall()]
+        esistenti_per_id = {r["id"]: r for r in tutti_esistenti}
         esistenti_per_tel = {
-            normalizza_telefono(r["telefono"]): r["id"]
-            for r in cur.fetchall()
+            normalizza_telefono(r["telefono"]): r
+            for r in tutti_esistenti
             if normalizza_telefono(r["telefono"])
         }
+
+        # Pre-carica tutti gli ordini per massimizzare le performance di sincronizzazione snapshot
+        cur.execute("SELECT id, contatto_id, importo, note_ordine, data_ordine FROM storico_ordini ORDER BY id ASC")
+        ordini_per_contatto = {}
+        for o in cur.fetchall():
+            c_id = o["contatto_id"]
+            if c_id not in ordini_per_contatto:
+                ordini_per_contatto[c_id] = []
+            ordini_per_contatto[c_id].append(dict(o))
 
         sincronizzati = 0
         adesso_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -2054,19 +2352,46 @@ def sincronizza_snapshot_client(lista_contatti, telefoni_eliminati=None):
             referente = str(item.get("referente", "")).strip()
             citta = str(item.get("citta", "")).strip()
             regione = str(item.get("regione", "")).strip() or deduci_regione(citta)
-            note = str(item.get("note", "")).strip()
-            chiamato = "Sì" if str(item.get("chiamato", "No")).strip() in ("Sì", "Si", "sì", "si") else "No"
-            esito = str(item.get("esito", "In attesa")).strip() or "In attesa"
+            note_in = str(item.get("note", "")).strip()
             priorita = _parse_priorita(item.get("priorita", 2), default=2)
-            totale_ordini = _parse_importo(item.get("totale_ordini", 0.0), default=0.0)
-            numero_ordini = int(item.get("numero_ordini", 0) or 0)
-            data_ric = _normalizza_data_ricontatto(item.get("data_ricontatto", ""))
-            motivo_ric = str(item.get("motivo_ricontatto", "")).strip() if data_ric else ""
+            totale_ordini_in = _parse_importo(item.get("totale_ordini", 0.0), default=0.0)
+            numero_ordini_in = int(item.get("numero_ordini", 0) or 0)
+            data_ric_in = _normalizza_data_ricontatto(item.get("data_ricontatto", ""))
+            motivo_ric_in = str(item.get("motivo_ricontatto", "")).strip() if data_ric_in else ""
             data_agg = str(item.get("data_aggiornamento", "")).strip() or adesso_str
             ordini_storico = item.get("ordini_storico", [])
 
-            if tel_norm in esistenti_per_tel:
-                cid = esistenti_per_tel[tel_norm]
+            chiamato_in = "Sì" if str(item.get("chiamato", "No")).strip().lower() in ("sì", "si", "yes", "true", "1") else "No"
+            esito_in = str(item.get("esito", "In attesa")).strip() or "In attesa"
+
+            item_id = item.get("id")
+            rec = None
+            if item_id and item_id in esistenti_per_id:
+                rec = esistenti_per_id[item_id]
+            elif tel_norm in esistenti_per_tel:
+                rec = esistenti_per_tel[tel_norm]
+
+            if rec is not None:
+                cid = rec["id"]
+
+                # Protezione anti-degradazione: mai degradare chiamato da "Sì" a "No"
+                chiamato_finale = "Sì" if (rec["chiamato"] == "Sì" or chiamato_in == "Sì") else "No"
+
+                # Protezione anti-degradazione: mai degradare esito commerciale a "In attesa"
+                if rec["esito"] and rec["esito"] != "In attesa" and esito_in == "In attesa":
+                    esito_finale = rec["esito"]
+                else:
+                    esito_finale = esito_in if esito_in != "In attesa" else (rec["esito"] or "In attesa")
+
+                # Protezione anti-perdita note: fondi sempre le annotazioni
+                note_finali = _accoda_nota_sql(rec["note"], note_in)
+
+                data_ric_finale = data_ric_in or rec["data_ricontatto"] or ""
+                motivo_ric_finale = motivo_ric_in or rec["motivo_ricontatto"] or ""
+
+                totale_ordini_finale = max(totale_ordini_in, float(rec["totale_ordini"] or 0.0))
+                numero_ordini_finale = max(numero_ordini_in, int(rec["numero_ordini"] or 0))
+
                 cur.execute(
                     """
                     UPDATE contatti_ingrosso
@@ -2078,11 +2403,21 @@ def sincronizza_snapshot_client(lista_contatti, telefoni_eliminati=None):
                     """,
                     (
                         azienda, referente, telefono, citta, regione,
-                        note, chiamato, esito, priorita,
-                        totale_ordini, numero_ordini,
-                        data_ric, motivo_ric, data_agg, cid,
+                        note_finali, chiamato_finale, esito_finale, priorita,
+                        totale_ordini_finale, numero_ordini_finale,
+                        data_ric_finale, motivo_ric_finale, data_agg, cid,
                     ),
                 )
+                rec["telefono"] = telefono
+                rec["chiamato"] = chiamato_finale
+                rec["esito"] = esito_finale
+                rec["note"] = note_finali
+                rec["data_ricontatto"] = data_ric_finale
+                rec["motivo_ricontatto"] = motivo_ric_finale
+                rec["totale_ordini"] = totale_ordini_finale
+                rec["numero_ordini"] = numero_ordini_finale
+                esistenti_per_id[cid] = rec
+                esistenti_per_tel[tel_norm] = rec
             else:
                 cur.execute(
                     """
@@ -2094,33 +2429,68 @@ def sincronizza_snapshot_client(lista_contatti, telefoni_eliminati=None):
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        azienda, referente, telefono, citta, regione, note,
-                        chiamato, esito, priorita, totale_ordini, numero_ordini,
-                        data_ric, motivo_ric, data_agg,
+                        azienda, referente, telefono, citta, regione, note_in,
+                        chiamato_in, esito_in, priorita, totale_ordini_in, numero_ordini_in,
+                        data_ric_in, motivo_ric_in, data_agg,
                     ),
                 )
                 cid = cur.lastrowid
-                esistenti_per_tel[tel_norm] = cid
+                nuovo_rec = {
+                    "id": cid,
+                    "azienda": azienda,
+                    "referente": referente,
+                    "telefono": telefono,
+                    "citta": citta,
+                    "regione": regione,
+                    "note": note_in,
+                    "chiamato": chiamato_in,
+                    "esito": esito_in,
+                    "priorita": priorita,
+                    "totale_ordini": totale_ordini_in,
+                    "numero_ordini": numero_ordini_in,
+                    "data_ricontatto": data_ric_in,
+                    "motivo_ricontatto": motivo_ric_in,
+                    "data_aggiornamento": data_agg,
+                }
+                esistenti_per_id[cid] = nuovo_rec
+                esistenti_per_tel[tel_norm] = nuovo_rec
 
             if isinstance(ordini_storico, list) and len(ordini_storico) > 0:
-                cur.execute("SELECT COUNT(*) AS cnt FROM storico_ordini WHERE contatto_id = ?", (cid,))
-                if cur.fetchone()["cnt"] == 0:
-                    for o in ordini_storico:
-                        if isinstance(o, dict):
-                            imp = _parse_importo(o.get("importo", 0.0), default=0.0)
-                            if imp > 0:
+                ordini_db = ordini_per_contatto.get(cid, [])
+                firme_esistenti = {
+                    (round(float(o["importo"] or 0.0), 2), str(o["data_ordine"] or "").strip(), str(o["note_ordine"] or "").strip())
+                    for o in ordini_db
+                }
+                inserito_almeno_uno = False
+                for o in ordini_storico:
+                    if isinstance(o, dict):
+                        imp = _parse_importo(o.get("importo", 0.0), default=0.0)
+                        if imp > 0:
+                            d_ord = str(o.get("data_ordine", "")).strip() or data_agg
+                            n_ord = str(o.get("note_ordine", "")).strip()
+                            firma = (round(imp, 2), d_ord, n_ord)
+                            # Se l'ordine è un fallback sintetico e nel DB esiste già un ordine con questo importo, non duplicare
+                            is_synthetic = n_ord in (
+                                "Storico ordini B2B confermato",
+                                "Ordine pregresso",
+                                "Ordine iniziale registrato in anagrafica"
+                            )
+                            has_matching_amount = any(round(float(ex["importo"] or 0.0), 2) == round(imp, 2) for ex in ordini_db)
+                            if is_synthetic and has_matching_amount:
+                                continue
+                            if firma not in firme_esistenti:
                                 cur.execute(
                                     """
                                     INSERT INTO storico_ordini (contatto_id, importo, note_ordine, data_ordine)
                                     VALUES (?, ?, ?, ?)
                                     """,
-                                    (
-                                        cid,
-                                        imp,
-                                        str(o.get("note_ordine", "")).strip(),
-                                        str(o.get("data_ordine", "")).strip() or data_agg,
-                                    ),
+                                    (cid, imp, n_ord, d_ord),
                                 )
+                                firme_esistenti.add(firma)
+                                ordini_db.append({"id": cur.lastrowid, "importo": imp, "note_ordine": n_ord, "data_ordine": d_ord})
+                                ordini_per_contatto[cid] = ordini_db
+                                inserito_almeno_uno = True
+                if inserito_almeno_uno or len(ordini_db) == 0:
                     _ricalcola_ordini_contatto(cur, cid)
 
             sincronizzati += 1
